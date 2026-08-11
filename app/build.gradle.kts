@@ -60,9 +60,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
 
     // ✅ ML Kit - النسخة غير المضمّنة (لاتيني + أساسي عربي)
-  //  implementation("com.google.mlkit:text-recognition:16.0.0")
-// ❌ احذف هذا السطر
-// implementation("com.google.mlkit:text-recognition:16.0.0")
+  
+
+
 
 // ✅ أضف هذين السطرين
 implementation("com.google.mlkit:text-recognition:16.0.0")
