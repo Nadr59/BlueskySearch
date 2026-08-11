@@ -19,7 +19,10 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 
@@ -46,14 +49,9 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
 
-    // ✅ ML Kit — الإنجليزية
-    
-
-    // ✅ ML Kit — العربية (جرّب 16.0.0 أولاً — إذا فشل جرّب 16.0.1)
-    
-// احذف السطرين أعلاه واستبدل بـ:
-implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
-implementation("com.google.android.gms:play-services-mlkit-text-recognition-arabic:16.0.0")
+    // ✅ Tesseract OCR — يدعم العربية + الإنجليزية + 100 لغة
+    // إذا فشلت 4.7.0 جرّب: 4.6.0 أو 4.5.1
+    implementation("cz.adaptech.tesseract4android:tesseract4android:4.7.0")
 
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
