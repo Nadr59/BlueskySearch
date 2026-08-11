@@ -51,11 +51,10 @@ dependencies {
 
     // ✅ Tesseract OCR — يدعم العربية + الإنجليزية + 100 لغة
     // إذا فشلت 4.7.0 جرّب: 4.6.0 أو 4.5.1
-    implementation("cz.adaptech.tesseract4android:tesseract4android:4.7.0")
-
+    implementation("com.rmtheis:tess-two:9.1.0")
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
-
+implementation("com.rmtheis:tess-two:9.1.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
 }
