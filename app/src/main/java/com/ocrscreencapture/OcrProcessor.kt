@@ -8,39 +8,62 @@ import android.graphics.Paint
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
+import com.google.mlkit.vision.text.arabic.ArabicTextRecognizerOptions
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 
 /**
- * معالج التعرف الضوئي على الحروف باستخدام ML Kit
- * يستخدم المعالج اللاتيني الذي يدعم الإنجليزية وأساسيات العربية
+ * معالج التعرف الضوئي على الحروف
+ * يستخدم معالجين بالتوازي: عربي + إنجليزي
+ * ويختار النتيجة الأطول (الأكثر دقة)
  */
 class OcrProcessor {
 
-    // ✅ الاستيراد الصحيح لـ ML Kit غير المضمّن (unbundled)
-    private val recognizer: TextRecognizer =
+    // ✅ معالج النصوص العربية
+    private val arabicRecognizer: TextRecognizer =
+        TextRecognition.getClient(ArabicTextRecognizerOptions.Builder().build())
+
+    // ✅ معالج النصوص اللاتينية (الإنجليزية)
+    private val latinRecognizer: TextRecognizer =
         TextRecognition.getClient(TextRecognizerOptions.Builder().build())
 
     /**
      * معالجة الصورة واستخراج النص
+     * يشغّل كلا المعالجين بالتوازي ويختار النتيجة الأفضل
      */
-    suspend fun processImage(bitmap: Bitmap): String = withContext(Dispatchers.Default) {
+    suspend fun processImage(bitmap: Bitmap): String = coroutineScope {
         try {
             val enhanced = enhanceContrast(bitmap)
             val compressed = compressBitmap(enhanced)
             val image = InputImage.fromBitmap(compressed, 0)
 
-            val result = tryRecognize(image)
+            // تشغيل كلا المعالجين بالتوازي
+            val arabicDeferred = async(Dispatchers.Default) {
+                tryRecognize(arabicRecognizer, image)
+            }
+            val latinDeferred = async(Dispatchers.Default) {
+                tryRecognize(latinRecognizer, image)
+            }
+
+            val arabicResult = arabicDeferred.await()
+            val latinResult = latinDeferred.await()
 
             // تحرير الذاكرة
             if (enhanced !== bitmap && !enhanced.isRecycled) enhanced.recycle()
             if (compressed !== enhanced && compressed !== bitmap && !compressed.isRecycled) compressed.recycle()
 
-            result
+            // اختيار النتيجة الأطول
+            when {
+                arabicResult.length > latinResult.length -> arabicResult
+                latinResult.isNotBlank() -> latinResult
+                arabicResult.isNotBlank() -> arabicResult
+                else -> ""
+            }
         } catch (e: Exception) {
             e.printStackTrace()
             ""
@@ -48,19 +71,21 @@ class OcrProcessor {
     }
 
     /**
-     * محاولة التعرف على النص
+     * محاولة التعرف على النص باستخدام معالج محدد
      */
-    private suspend fun tryRecognize(image: InputImage): String =
-        suspendCancellableCoroutine { cont ->
-            recognizer.process(image)
-                .addOnSuccessListener { text ->
-                    if (cont.isActive) cont.resume(text.text)
-                }
-                .addOnFailureListener { e ->
-                    e.printStackTrace()
-                    if (cont.isActive) cont.resume("")
-                }
-        }
+    private suspend fun tryRecognize(
+        recognizer: TextRecognizer,
+        image: InputImage
+    ): String = suspendCancellableCoroutine { cont ->
+        recognizer.process(image)
+            .addOnSuccessListener { text ->
+                if (cont.isActive) cont.resume(text.text)
+            }
+            .addOnFailureListener { e ->
+                e.printStackTrace()
+                if (cont.isActive) cont.resume("")
+            }
+    }
 
     /**
      * تحسين تباين الصورة لدقة OCR أفضل
@@ -109,8 +134,7 @@ class OcrProcessor {
      * تحرير الموارد
      */
     fun close() {
-        try {
-            recognizer.close()
-        } catch (_: Exception) {}
+        try { arabicRecognizer.close() } catch (_: Exception) {}
+        try { latinRecognizer.close() } catch (_: Exception) {}
     }
 }
