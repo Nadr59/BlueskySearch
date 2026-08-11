@@ -8,19 +8,20 @@ import android.graphics.Paint
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
 /**
- * معالج التعرف الضوئي على الحروف
- * يستخدم ML Kit المضمّن — لا يحتاج استيرادات إضافية
+ * معالج التعرف الضوئي على الحروف باستخدام ML Kit
  */
 class OcrProcessor {
 
-    // ✅ أبسط طريقة — لا تحتاج أي import إضافي
-    private val recognizer: TextRecognizer = TextRecognition.getClient()
+    // ✅ المعالج اللاتيني الافتراضي (يدعم الإنجليزية + أساسيات العربية)
+    private val recognizer: TextRecognizer =
+        TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
     suspend fun processImage(bitmap: Bitmap): String = withContext(Dispatchers.Default) {
         try {
