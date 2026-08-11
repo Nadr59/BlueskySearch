@@ -44,7 +44,7 @@ class FloatingWindowService : Service() {
     private var floatingBtn: View? = null
     private var overlay: SelectionOverlayView? = null
     private var captureManager: ScreenCaptureManager? = null
-    private val ocrProcessor = OcrProcessor()
+    private val ocrProcessor by lazy { OcrProcessor(this) }
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     // ✅ نافذة تشخيصية مرئية
