@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
+import android.util.Log
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
@@ -14,22 +15,26 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
-/**
- * معالج التعرف الضوئي على الحروف باستخدام ML Kit
- */
 class OcrProcessor {
 
-    // ✅ المعالج اللاتيني الافتراضي (يدعم الإنجليزية + أساسيات العربية)
+    companion object {
+        private const val TAG = "OcrProcessor"
+    }
+
     private val recognizer: TextRecognizer =
         TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
     suspend fun processImage(bitmap: Bitmap): String = withContext(Dispatchers.Default) {
         try {
+            Log.d(TAG, "بدء معالجة الصورة: ${bitmap.width}x${bitmap.height}")
+
             val enhanced = enhanceContrast(bitmap)
             val compressed = compressBitmap(enhanced)
             val image = InputImage.fromBitmap(compressed, 0)
 
             val result = tryRecognize(image)
+
+            Log.d(TAG, "نتيجة OCR: ${result.length} حرف")
 
             if (enhanced !== bitmap && !enhanced.isRecycled) enhanced.recycle()
             if (compressed !== enhanced && compressed !== bitmap && !compressed.isRecycled) {
@@ -38,7 +43,7 @@ class OcrProcessor {
 
             result
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "خطأ في OCR", e)
             ""
         }
     }
@@ -47,19 +52,18 @@ class OcrProcessor {
         suspendCancellableCoroutine { cont ->
             recognizer.process(image)
                 .addOnSuccessListener { visionText ->
+                    Log.d(TAG, "OCR نجح: ${visionText.textBlocks.size} كتلة نصية")
                     if (cont.isActive) cont.resume(visionText.text)
                 }
                 .addOnFailureListener { e ->
-                    e.printStackTrace()
+                    Log.e(TAG, "OCR فشل", e)
                     if (cont.isActive) cont.resume("")
                 }
         }
 
     private fun enhanceContrast(bitmap: Bitmap): Bitmap {
         return try {
-            val result = Bitmap.createBitmap(
-                bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888
-            )
+            val result = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(result)
             val paint = Paint().apply {
                 colorFilter = ColorMatrixColorFilter(
@@ -80,15 +84,9 @@ class OcrProcessor {
 
     private fun compressBitmap(bitmap: Bitmap, maxDim: Int = 1920): Bitmap {
         if (bitmap.width <= maxDim && bitmap.height <= maxDim) return bitmap
-        val ratio = minOf(
-            maxDim.toFloat() / bitmap.width,
-            maxDim.toFloat() / bitmap.height
-        )
+        val ratio = minOf(maxDim.toFloat() / bitmap.width, maxDim.toFloat() / bitmap.height)
         return Bitmap.createScaledBitmap(
-            bitmap,
-            (bitmap.width * ratio).toInt(),
-            (bitmap.height * ratio).toInt(),
-            true
+            bitmap, (bitmap.width * ratio).toInt(), (bitmap.height * ratio).toInt(), true
         )
     }
 
