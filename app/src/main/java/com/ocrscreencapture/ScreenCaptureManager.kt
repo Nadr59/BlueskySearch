@@ -14,23 +14,31 @@ import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.DisplayMetrics
+import android.util.Log
 import android.view.WindowManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
-/**
- * مدير التقاط الشاشة باستخدام MediaProjection API
- * يدير دورة حياة MediaProjection وال VirtualDisplay
- */
 class ScreenCaptureManager(
     private val context: Context,
     private val resultCode: Int,
     private val resultData: Intent
 ) {
+    companion object {
+        private const val TAG = "ScreenCapture"
+    }
+
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
 
     @Volatile
     private var latestBitmap: Bitmap? = null
+
+    // ✅ هذا يخبرنا متى يكون أول إطار جاهز
+    private val firstFrameLatch = CountDownLatch(1)
 
     private var handlerThread: HandlerThread? = null
     private var handler: Handler? = null
@@ -39,17 +47,12 @@ class ScreenCaptureManager(
     var screenHeight = 0; private set
     var screenDpi = 0;    private set
 
-    // Callback عند إيقاف المشاركة من قبل النظام
     var onProjectionStopped: (() -> Unit)? = null
 
-    /**
-     * تهيئة MediaProjection وإنشاء VirtualDisplay
-     */
     fun initialize() {
         handlerThread = HandlerThread("ScreenCaptureThread").apply { start() }
         handler = Handler(handlerThread!!.looper)
 
-        // الحصول على أبعاد الشاشة الفعلية
         val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val bounds = wm.currentWindowMetrics.bounds
@@ -63,38 +66,39 @@ class ScreenCaptureManager(
         }
         screenDpi = context.resources.displayMetrics.densityDpi
 
-        // إنشاء MediaProjection من بيانات الموافقة
         val projManager = context.getSystemService(
             Context.MEDIA_PROJECTION_SERVICE
         ) as MediaProjectionManager
         mediaProjection = projManager.getMediaProjection(resultCode, resultData)
 
-        // تسجيل callback للتعامل مع إيقاف المشاركة
         mediaProjection?.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
+                Log.w(TAG, "MediaProjection stopped by system")
                 release()
                 handler?.post { onProjectionStopped?.invoke() }
             }
         }, handler)
 
-        // إنشاء ImageReader بتنسيق RGBA
         imageReader = ImageReader.newInstance(
             screenWidth, screenHeight, PixelFormat.RGBA_8888, 2
         )
 
-        // تحديث أحدث إطار عند توفره
         imageReader?.setOnImageAvailableListener({ reader ->
             val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
             try {
                 latestBitmap = imageToBitmap(image)
+                // ✅ إشارة أن أول إطار وصل
+                if (firstFrameLatch.count > 0) {
+                    firstFrameLatch.countDown()
+                    Log.d(TAG, "First frame captured: ${latestBitmap?.width}x${latestBitmap?.height}")
+                }
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.e(TAG, "Error processing frame", e)
             } finally {
                 image.close()
             }
         }, handler)
 
-        // إنشاء VirtualDisplay يعكس الشاشة
         virtualDisplay = mediaProjection?.createVirtualDisplay(
             "OCRScreenCapture",
             screenWidth, screenHeight, screenDpi,
@@ -102,30 +106,55 @@ class ScreenCaptureManager(
             imageReader!!.surface,
             null, handler
         )
+
+        Log.d(TAG, "Initialized: ${screenWidth}x${screenHeight} dpi=$screenDpi")
     }
 
     /**
-     * التقاط نسخة من أحدث إطار على الشاشة
+     * ✅ الانتظار حتى يكون أول إطار جاهز
      */
+    suspend fun waitForFirstFrame(timeoutMs: Long = 5000): Boolean {
+        return withContext(Dispatchers.IO) {
+            val ready = firstFrameLatch.await(timeoutMs, TimeUnit.MILLISECONDS)
+            Log.d(TAG, "waitForFirstFrame: ready=$ready")
+            ready
+        }
+    }
+
+    /**
+     * ✅ التحقق من وجود إطارات
+     */
+    fun hasFrames(): Boolean = firstFrameLatch.count == 0L
+
     fun captureScreen(): Bitmap? {
-        val src = latestBitmap ?: return null
-        return if (!src.isRecycled) src.copy(Bitmap.Config.ARGB_8888, false) else null
+        val src = latestBitmap
+        if (src == null) {
+            Log.w(TAG, "captureScreen: latestBitmap is null")
+            return null
+        }
+        if (src.isRecycled) {
+            Log.w(TAG, "captureScreen: latestBitmap is recycled")
+            return null
+        }
+        return try {
+            val copy = src.copy(Bitmap.Config.ARGB_8888, false)
+            Log.d(TAG, "captureScreen: success ${copy.width}x${copy.height}")
+            copy
+        } catch (e: Exception) {
+            Log.e(TAG, "captureScreen: copy failed", e)
+            null
+        }
     }
 
-    /**
-     * قص منطقة محددة من الصورة مع التحقق من الحدود
-     */
     fun cropBitmap(bitmap: Bitmap, left: Int, top: Int, right: Int, bottom: Int): Bitmap {
         val l = left.coerceIn(0, bitmap.width - 1)
         val t = top.coerceIn(0, bitmap.height - 1)
         val r = right.coerceIn(l + 1, bitmap.width)
         val b = bottom.coerceIn(t + 1, bitmap.height)
+        Log.d(TAG, "cropBitmap: ($l,$t,$r,$b) from ${bitmap.width}x${bitmap.height}")
         return Bitmap.createBitmap(bitmap, l, t, r - l, b - t)
     }
 
-    /**
-     * تحويل Image (RGBA) إلى Bitmap
-     */
     private fun imageToBitmap(image: Image): Bitmap {
         val plane = image.planes[0]
         val buffer = plane.buffer
@@ -144,10 +173,8 @@ class ScreenCaptureManager(
         } else bitmap
     }
 
-    /**
-     * تحرير جميع الموارد
-     */
     fun release() {
+        Log.d(TAG, "Releasing resources")
         virtualDisplay?.release();   virtualDisplay = null
         imageReader?.close();        imageReader = null
         mediaProjection?.stop();     mediaProjection = null
