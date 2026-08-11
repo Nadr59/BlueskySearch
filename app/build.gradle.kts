@@ -57,9 +57,8 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
 
-    // ✅ النسخة المضمّنة — تدعم العربية + الإنجليزية + كل اللغات
-    // الحجم ~40MB (النموذج مدمج في الـ APK)
-    implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
+    // ✅ النسخة المضمّنة — النماذج داخل الـ APK (~40MB)
+    implementation("com.google.mlkit:text-recognition:16.0.0")
 
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
