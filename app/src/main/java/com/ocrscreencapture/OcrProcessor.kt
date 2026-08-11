@@ -1,57 +1,57 @@
 package com.ocrscreencapture
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.util.Log
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.TextRecognizer
-import com.google.mlkit.vision.text.arabic.ArabicTextRecognizerOptions
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import cz.adaptech.tesseract4android.TessBaseAPI
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlin.coroutines.resume
+import kotlinx.coroutines.withContext
+import java.io.File
 
-class OcrProcessor {
+/**
+ * معالج التعرف الضوئي على الحروف باستخدام Tesseract 4
+ * يدعم: العربية ✅ + الإنجليزية ✅ + 100 لغة أخرى
+ */
+class OcrProcessor(private val context: Context) {
 
     companion object {
         private const val TAG = "OcrProcessor"
     }
 
-    // ✅ معالج عربي
-    private val arabicRecognizer: TextRecognizer =
-        TextRecognition.getClient(ArabicTextRecognizerOptions.Builder().build())
+    private var tessApi: TessBaseAPI? = null
+    private var isInitialized = false
 
-    // ✅ معالج إنجليزي
-    private val latinRecognizer: TextRecognizer =
-        TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-
-    suspend fun processImage(bitmap: Bitmap): String = coroutineScope {
+    /**
+     * معالجة الصورة واستخراج النص
+     * يُنشئ Tesseract عند أول استدعاء (lazy init)
+     */
+    suspend fun processImage(bitmap: Bitmap): String = withContext(Dispatchers.Default) {
         try {
+            // تهيئة Tesseract إذا لم يتم بعد
+            if (!isInitialized) {
+                initTesseract()
+            }
+
+            val api = tessApi
+            if (api == null || !isInitialized) {
+                Log.e(TAG, "Tesseract not initialized!")
+                return@withContext ""
+            }
+
             Log.d(TAG, "Processing: ${bitmap.width}x${bitmap.height}")
 
+            // تحسين الصورة
             val enhanced = enhanceContrast(bitmap)
             val compressed = compressBitmap(enhanced)
-            val image = InputImage.fromBitmap(compressed, 0)
 
-            // ✅ تشغيل كلا المعالجين بالتوازي
-            val arabicJob = async(Dispatchers.Default) {
-                recognize(arabicRecognizer, image)
-            }
-            val latinJob = async(Dispatchers.Default) {
-                recognize(latinRecognizer, image)
-            }
-
-            val arabicResult = arabicJob.await()
-            val latinResult = latinJob.await()
-
-            Log.d(TAG, "Arabic: ${arabicResult.length} chars = '${arabicResult.take(50)}'")
-            Log.d(TAG, "Latin: ${latinResult.length} chars = '${latinResult.take(50)}'")
+            // ✅ التعرف على النص
+            api.setImage(compressed)
+            val result = api.getUTF8Text() ?: ""
+            api.clear()
 
             // تحرير الذاكرة
             if (enhanced !== bitmap && !enhanced.isRecycled) enhanced.recycle()
@@ -59,63 +59,86 @@ class OcrProcessor {
                 compressed.recycle()
             }
 
-            // ✅ اختيار النتيجة الأفضل
-            val best = chooseBest(arabicResult, latinResult)
-            Log.d(TAG, "Best result: ${best.length} chars")
-            best
+            val trimmed = result.trim()
+            Log.d(TAG, "Result: ${trimmed.length} chars = '${trimmed.take(80)}'")
+            trimmed
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error", e)
+            Log.e(TAG, "OCR error", e)
             ""
         }
     }
 
     /**
-     * ✅ اختيار النتيجة الأفضل
-     * إذا كانت العربية تحتوي أحرف عربية → اخترها
-     * وإلا اختر الأطول
+     * تهيئة Tesseract — نسخ بيانات اللغة من Assets إلى التخزين الداخلي
      */
-    private fun chooseBest(arabic: String, latin: String): String {
-        val arabicHasArabicChars = arabic.any { it in '\u0600'..'\u06FF' || it in '\u0750'..\u077F' || it in '\uFB50'..'\uFDFF' || it in '\uFE70'..'\uFEFF' }
+    private fun initTesseract() {
+        try {
+            val dataPath = context.filesDir.absolutePath
+            val tessDir = File(dataPath, "tessdata")
 
-        return when {
-            // العربية تحتوي أحرف عربية حقيقية
-            arabicHasArabicChars && arabic.isNotBlank() -> arabic
-            // اللاتينية تحتوي نص
-            latin.isNotBlank() -> latin
-            // العربية تحتوي أي شيء
-            arabic.isNotBlank() -> arabic
-            // لا شيء
-            else -> ""
+            // نسخ ملفات اللغة إذا لم تكن موجودة
+            if (!tessDir.exists() || !File(tessDir, "ara.traineddata").exists()) {
+                Log.d(TAG, "Copying trained data from assets...")
+                tessDir.mkdirs()
+                copyAsset("tessdata/ara.traineddata", File(tessDir, "ara.traineddata"))
+                copyAsset("tessdata/eng.traineddata", File(tessDir, "eng.traineddata"))
+            }
+
+            // التحقق من وجود الملفات
+            val araFile = File(tessDir, "ara.traineddata")
+            val engFile = File(tessDir, "eng.traineddata")
+
+            if (!araFile.exists()) {
+                Log.e(TAG, "ara.traineddata NOT FOUND at: ${araFile.absolutePath}")
+                return
+            }
+            if (!engFile.exists()) {
+                Log.e(TAG, "eng.traineddata NOT FOUND at: ${engFile.absolutePath}")
+                return
+            }
+
+            Log.d(TAG, "ara.traineddata: ${araFile.length()} bytes")
+            Log.d(TAG, "eng.traineddata: ${engFile.length()} bytes")
+
+            // تهيئة Tesseract
+            tessApi = TessBaseAPI()
+            val success = tessApi!!.init(dataPath, "ara+eng")
+
+            if (success) {
+                isInitialized = true
+                Log.d(TAG, "Tesseract initialized successfully! Language: ara+eng")
+            } else {
+                Log.e(TAG, "TessBaseAPI.init() returned false!")
+                tessApi?.recycle()
+                tessApi = null
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Tesseract init failed", e)
+            tessApi = null
         }
     }
 
     /**
-     * ✅ التحقق: هل النص يحتوي أحرف عربية؟
+     * نسخ ملف من Assets إلى التخزين الداخلي
      */
-    private fun String.hasArabic(): Boolean {
-        return any { char ->
-            char in '\u0600'..'\u06FF' ||    // Arabic
-            char in '\u0750'..'\u077F' ||    // Arabic Supplement
-            char in '\uFB50'..'\uFDFF' ||    // Arabic Presentation Forms-A
-            char in '\uFE70'..'\uFEFF'       // Arabic Presentation Forms-B
+    private fun copyAsset(assetPath: String, destFile: File) {
+        try {
+            context.assets.open(assetPath).use { input ->
+                destFile.outputStream().use { output ->
+                    val bytes = input.copyTo(output)
+                    Log.d(TAG, "Copied $assetPath → ${destFile.absolutePath} ($bytes bytes)")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to copy asset: $assetPath", e)
         }
     }
 
-    private suspend fun recognize(
-        recognizer: TextRecognizer,
-        image: InputImage
-    ): String = suspendCancellableCoroutine { cont ->
-        recognizer.process(image)
-            .addOnSuccessListener { text ->
-                if (cont.isActive) cont.resume(text.text)
-            }
-            .addOnFailureListener { e ->
-                Log.e(TAG, "Recognition failed", e)
-                if (cont.isActive) cont.resume("")
-            }
-    }
-
+    /**
+     * تحسين تباين الصورة لدقة OCR أفضل
+     */
     private fun enhanceContrast(bitmap: Bitmap): Bitmap {
         return try {
             val result = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
@@ -132,19 +155,33 @@ class OcrProcessor {
             }
             canvas.drawBitmap(bitmap, 0f, 0f, paint)
             result
-        } catch (e: Exception) { bitmap }
+        } catch (e: Exception) {
+            bitmap
+        }
     }
 
+    /**
+     * ضغط الصورة لتقليل وقت المعالجة
+     */
     private fun compressBitmap(bitmap: Bitmap, maxDim: Int = 1920): Bitmap {
         if (bitmap.width <= maxDim && bitmap.height <= maxDim) return bitmap
         val ratio = minOf(maxDim.toFloat() / bitmap.width, maxDim.toFloat() / bitmap.height)
         return Bitmap.createScaledBitmap(
-            bitmap, (bitmap.width * ratio).toInt(), (bitmap.height * ratio).toInt(), true
+            bitmap,
+            (bitmap.width * ratio).toInt(),
+            (bitmap.height * ratio).toInt(),
+            true
         )
     }
 
+    /**
+     * تحرير الموارد
+     */
     fun close() {
-        try { arabicRecognizer.close() } catch (_: Exception) {}
-        try { latinRecognizer.close() } catch (_: Exception) {}
+        try {
+            tessApi?.recycle()
+        } catch (_: Exception) {}
+        tessApi = null
+        isInitialized = false
     }
 }
