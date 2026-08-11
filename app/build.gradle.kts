@@ -1,7 +1,7 @@
 plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
-    id("com.google.devtools.ksp")
+    id("com.android.application") version "8.2.2"
+    id("org.jetbrains.kotlin.android") version "1.9.22"
+    id("com.google.devtools.ksp") version "1.9.22-1.0.17"
 }
 
 android {
@@ -24,9 +24,6 @@ android {
                 "proguard-rules.pro"
             )
         }
-        debug {
-            isMinifyEnabled = false
-        }
     }
 
     compileOptions {
@@ -45,10 +42,19 @@ android {
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.10"
     }
+
+    // ✅ منع مشكلة mutate بعد resolution
+    configurations.all {
+        resolutionStrategy {
+            force("org.jetbrains.kotlin:kotlin-stdlib:1.9.22")
+            force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.22")
+            force("org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.9.22")
+        }
+    }
 }
 
 dependencies {
-    // Compose
+    // Compose BOM
     val composeBom = platform("androidx.compose:compose-bom:2024.02.02")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
@@ -62,7 +68,7 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
 
-    // ✅ ML Kit - النسخة المضمّنة (تدعم العربية + الإنجليزية + لغات أخرى)
+    // ML Kit (يدعم العربية + الإنجليزية)
     implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
 
     // Room Database
