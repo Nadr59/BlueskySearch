@@ -47,10 +47,13 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
 
     // ✅ ML Kit — الإنجليزية
-    implementation("com.google.mlkit:text-recognition:16.0.0")
+    
 
     // ✅ ML Kit — العربية (جرّب 16.0.0 أولاً — إذا فشل جرّب 16.0.1)
-    implementation("com.google.mlkit:text-recognition-arabic:16.0.1")
+    
+// احذف السطرين أعلاه واستبدل بـ:
+implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
+implementation("com.google.android.gms:play-services-mlkit-text-recognition-arabic:16.0.0")
 
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
