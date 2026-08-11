@@ -45,7 +45,6 @@ android {
 }
 
 dependencies {
-    // Compose
     val composeBom = platform("androidx.compose:compose-bom:2024.02.02")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
@@ -54,19 +53,17 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
 
-    // Core
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
 
-    // ✅ ML Kit المضمّن — يدعم العربية + الإنجليزية + كل اللغات
+    // ✅ النسخة المضمّنة — تدعم العربية + الإنجليزية + كل اللغات
+    // الحجم ~40MB (النموذج مدمج في الـ APK)
     implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
 
-    // Room Database
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
 
-    // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0")
 }
