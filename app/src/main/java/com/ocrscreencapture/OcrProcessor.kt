@@ -26,15 +26,14 @@ class OcrProcessor {
 
     suspend fun processImage(bitmap: Bitmap): String = withContext(Dispatchers.Default) {
         try {
-            Log.d(TAG, "بدء معالجة الصورة: ${bitmap.width}x${bitmap.height}")
+            Log.d(TAG, "Processing image: ${bitmap.width}x${bitmap.height}")
 
             val enhanced = enhanceContrast(bitmap)
             val compressed = compressBitmap(enhanced)
             val image = InputImage.fromBitmap(compressed, 0)
 
             val result = tryRecognize(image)
-
-            Log.d(TAG, "نتيجة OCR: ${result.length} حرف")
+            Log.d(TAG, "OCR result: ${result.length} chars")
 
             if (enhanced !== bitmap && !enhanced.isRecycled) enhanced.recycle()
             if (compressed !== enhanced && compressed !== bitmap && !compressed.isRecycled) {
@@ -43,7 +42,7 @@ class OcrProcessor {
 
             result
         } catch (e: Exception) {
-            Log.e(TAG, "خطأ في OCR", e)
+            Log.e(TAG, "OCR error", e)
             ""
         }
     }
@@ -52,11 +51,11 @@ class OcrProcessor {
         suspendCancellableCoroutine { cont ->
             recognizer.process(image)
                 .addOnSuccessListener { visionText ->
-                    Log.d(TAG, "OCR نجح: ${visionText.textBlocks.size} كتلة نصية")
+                    Log.d(TAG, "OCR success: ${visionText.textBlocks.size} blocks")
                     if (cont.isActive) cont.resume(visionText.text)
                 }
                 .addOnFailureListener { e ->
-                    Log.e(TAG, "OCR فشل", e)
+                    Log.e(TAG, "OCR failed", e)
                     if (cont.isActive) cont.resume("")
                 }
         }
@@ -77,9 +76,7 @@ class OcrProcessor {
             }
             canvas.drawBitmap(bitmap, 0f, 0f, paint)
             result
-        } catch (e: Exception) {
-            bitmap
-        }
+        } catch (e: Exception) { bitmap }
     }
 
     private fun compressBitmap(bitmap: Bitmap, maxDim: Int = 1920): Bitmap {
