@@ -17,77 +17,43 @@ import kotlin.coroutines.resume
 
 class OcrProcessor {
 
-    companion object {
-        private const val TAG = "OcrProcessor"
-    }
+    companion object { private const val TAG = "OcrProcessor" }
 
     private val recognizer: TextRecognizer =
         TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
     suspend fun processImage(bitmap: Bitmap): String = withContext(Dispatchers.Default) {
         try {
-            Log.d(TAG, "Processing image: ${bitmap.width}x${bitmap.height}")
-
             val enhanced = enhanceContrast(bitmap)
             val compressed = compressBitmap(enhanced)
             val image = InputImage.fromBitmap(compressed, 0)
-
             val result = tryRecognize(image)
-            Log.d(TAG, "OCR result: ${result.length} chars")
-
             if (enhanced !== bitmap && !enhanced.isRecycled) enhanced.recycle()
-            if (compressed !== enhanced && compressed !== bitmap && !compressed.isRecycled) {
-                compressed.recycle()
-            }
-
+            if (compressed !== enhanced && compressed !== bitmap && !compressed.isRecycled) compressed.recycle()
             result
-        } catch (e: Exception) {
-            Log.e(TAG, "OCR error", e)
-            ""
-        }
+        } catch (e: Exception) { Log.e(TAG, "Error", e); "" }
     }
 
     private suspend fun tryRecognize(image: InputImage): String =
         suspendCancellableCoroutine { cont ->
             recognizer.process(image)
-                .addOnSuccessListener { visionText ->
-                    Log.d(TAG, "OCR success: ${visionText.textBlocks.size} blocks")
-                    if (cont.isActive) cont.resume(visionText.text)
-                }
-                .addOnFailureListener { e ->
-                    Log.e(TAG, "OCR failed", e)
-                    if (cont.isActive) cont.resume("")
-                }
+                .addOnSuccessListener { if (cont.isActive) cont.resume(it.text) }
+                .addOnFailureListener { e -> Log.e(TAG, "Fail", e); if (cont.isActive) cont.resume("") }
         }
 
-    private fun enhanceContrast(bitmap: Bitmap): Bitmap {
-        return try {
-            val result = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(result)
-            val paint = Paint().apply {
-                colorFilter = ColorMatrixColorFilter(
-                    ColorMatrix(floatArrayOf(
-                        1.5f, 0f, 0f, 0f, -25f,
-                        0f, 1.5f, 0f, 0f, -25f,
-                        0f, 0f, 1.5f, 0f, -25f,
-                        0f, 0f, 0f, 1f, 0f
-                    ))
-                )
-            }
-            canvas.drawBitmap(bitmap, 0f, 0f, paint)
-            result
-        } catch (e: Exception) { bitmap }
+    private fun enhanceContrast(b: Bitmap): Bitmap = try {
+        val r = Bitmap.createBitmap(b.width, b.height, Bitmap.Config.ARGB_8888)
+        Canvas(r).drawBitmap(b, 0f, 0f, Paint().apply {
+            colorFilter = ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
+                1.5f,0f,0f,0f,-25f, 0f,1.5f,0f,0f,-25f, 0f,0f,1.5f,0f,-25f, 0f,0f,0f,1f,0f)))
+        }); r
+    } catch (_: Exception) { b }
+
+    private fun compressBitmap(b: Bitmap, max: Int = 1920): Bitmap {
+        if (b.width <= max && b.height <= max) return b
+        val ratio = minOf(max.toFloat() / b.width, max.toFloat() / b.height)
+        return Bitmap.createScaledBitmap(b, (b.width * ratio).toInt(), (b.height * ratio).toInt(), true)
     }
 
-    private fun compressBitmap(bitmap: Bitmap, maxDim: Int = 1920): Bitmap {
-        if (bitmap.width <= maxDim && bitmap.height <= maxDim) return bitmap
-        val ratio = minOf(maxDim.toFloat() / bitmap.width, maxDim.toFloat() / bitmap.height)
-        return Bitmap.createScaledBitmap(
-            bitmap, (bitmap.width * ratio).toInt(), (bitmap.height * ratio).toInt(), true
-        )
-    }
-
-    fun close() {
-        try { recognizer.close() } catch (_: Exception) {}
-    }
+    fun close() { try { recognizer.close() } catch (_: Exception) {} }
 }
