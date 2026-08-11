@@ -4,8 +4,8 @@ import android.graphics.Bitmap
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
+import com.google.mlkit.vision.text.TextRecognizerOptions
 import com.google.mlkit.vision.text.arabic.ArabicTextRecognizerOptions
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -14,17 +14,17 @@ import kotlin.coroutines.resume
 
 /**
  * معالج التعرف الضوئي على الحروف
- * يستخدم ML Kit للتعرف على النصوص العربية والإنجليزية بالتوازي
+ * يستخدم ML Kit (Google Play Services) للتعرف على النصوص العربية والإنجليزية
  */
 class OcrProcessor {
-
-    // معالج النصوص اللاتينية (الإنجليزية)
-    private val latinRecognizer: TextRecognizer =
-        TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
     // معالج النصوص العربية
     private val arabicRecognizer: TextRecognizer =
         TextRecognition.getClient(ArabicTextRecognizerOptions.Builder().build())
+
+    // معالج النصوص اللاتينية (الإنجليزية)
+    private val latinRecognizer: TextRecognizer =
+        TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
     /**
      * معالجة الصورة واستخراج النص
@@ -34,7 +34,7 @@ class OcrProcessor {
         val compressed = compressBitmap(bitmap)
         val image = InputImage.fromBitmap(compressed, 0)
 
-        // تشغيل كلا المعالجين بالتوازي لتحسين الأداء
+        // تشغيل كلا المعالجين بالتوازي
         val arabicDeferred = async(Dispatchers.Default) {
             tryRecognize(arabicRecognizer, image)
         }
@@ -90,7 +90,7 @@ class OcrProcessor {
     }
 
     fun close() {
-        latinRecognizer.close()
         arabicRecognizer.close()
+        latinRecognizer.close()
     }
 }
