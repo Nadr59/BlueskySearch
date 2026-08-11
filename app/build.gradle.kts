@@ -18,7 +18,7 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
+            isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -48,7 +48,7 @@ android {
 }
 
 dependencies {
-    // Compose BOM
+    // Compose
     val composeBom = platform("androidx.compose:compose-bom:2024.02.02")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
@@ -62,9 +62,8 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
 
-    // ML Kit OCR
-    implementation("com.google.mlkit:text-recognition:16.0.0")
-    implementation("com.google.mlkit:text-recognition-arabic:16.0.0")
+    // ✅ ML Kit - النسخة المضمّنة (تدعم العربية + الإنجليزية + لغات أخرى)
+    implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
 
     // Room Database
     implementation("androidx.room:room-runtime:2.6.1")
