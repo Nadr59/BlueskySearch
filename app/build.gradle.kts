@@ -59,14 +59,8 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
 
-    // ✅ ML Kit - النسخة غير المضمّنة (لاتيني + أساسي عربي)
-  
-
-
-
-// ✅ أضف هذين السطرين
-implementation("com.google.mlkit:text-recognition:16.0.0")
-implementation("com.google.mlkit:text-recognition-arabic:16.0.1")
+    // ✅ ML Kit المضمّن — يدعم العربية + الإنجليزية + كل اللغات
+    implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
 
     // Room Database
     implementation("androidx.room:room-runtime:2.6.1")
