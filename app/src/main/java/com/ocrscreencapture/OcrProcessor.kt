@@ -21,6 +21,7 @@ class OcrProcessor(private val context: Context) {
     private var tessApi: TessBaseAPI? = null
     private var isInitialized = false
     private var initError: String = ""
+    private var activeLang: String = ""
 
     suspend fun processImage(bitmap: Bitmap): String = withContext(Dispatchers.Default) {
         try {
@@ -34,27 +35,38 @@ class OcrProcessor(private val context: Context) {
                 return@withContext ""
             }
 
-            Log.d(TAG, "Processing: ${bitmap.width}x${bitmap.height}")
+            Log.d(TAG, "═══ Processing ═══")
+            Log.d(TAG, "Input: ${bitmap.width}x${bitmap.height} config=${bitmap.config}")
+            Log.d(TAG, "Active language: $activeLang")
 
+            // 1) تحويل لـ ARGB_8888
             val safe = ensureArgb8888(bitmap)
-            val enhanced = lightEnhance(safe)
+            Log.d(TAG, "Safe: ${safe.width}x${safe.height}")
 
-            api.setImage(enhanced)
+            // 2) ✅ لا نُحسّن الصورة — الأصلية أفضل للعربي
+            // التباين الزائد يقتل النقط والتشكيل
 
-            // ✅ tess-two يستخدم getUTF8Text()
+            // 3) ✅ تكبير الصورة الصغيرة (Tesseract يحتاج دقة عالية)
+            val scaled = scaleUpIfNeeded(safe)
+            Log.d(TAG, "Scaled: ${scaled.width}x${scaled.height}")
+
+            // 4) التعرف
+            api.setImage(scaled)
             val result = api.utF8Text ?: ""
-
             api.clear()
 
-            if (enhanced !== safe && enhanced !== bitmap && !enhanced.isRecycled) {
-                enhanced.recycle()
+            // 5) تنظيف
+            if (scaled !== safe && scaled !== bitmap && !scaled.isRecycled) {
+                scaled.recycle()
             }
             if (safe !== bitmap && !safe.isRecycled) {
                 safe.recycle()
             }
 
             val trimmed = result.trim()
-            Log.d(TAG, "Result: ${trimmed.length} chars = '${trimmed.take(100)}'")
+            Log.d(TAG, "═══ Result ═══")
+            Log.d(TAG, "Length: ${trimmed.length}")
+            Log.d(TAG, "Text: '${trimmed.take(200)}'")
             trimmed
 
         } catch (e: Exception) {
@@ -62,6 +74,8 @@ class OcrProcessor(private val context: Context) {
             ""
         }
     }
+
+    // ═══════════════ التهيئة ═══════════════
 
     private fun initTesseract() {
         try {
@@ -80,16 +94,11 @@ class OcrProcessor(private val context: Context) {
             val araFile = File(tessDir, "ara.traineddata")
             val engFile = File(tessDir, "eng.traineddata")
 
-            Log.d(TAG, "ara: exists=${araFile.exists()} size=${araFile.length()}")
-            Log.d(TAG, "eng: exists=${engFile.exists()} size=${engFile.length()}")
+            Log.d(TAG, "ara: ${araFile.exists()} ${araFile.length()} bytes")
+            Log.d(TAG, "eng: ${engFile.exists()} ${engFile.length()} bytes")
 
             if (!araFile.exists() || araFile.length() < 100000) {
-                initError = "ara.traineddata مفقود أو صغير (${araFile.length()} bytes)"
-                Log.e(TAG, initError)
-                return
-            }
-            if (!engFile.exists() || engFile.length() < 100000) {
-                initError = "eng.traineddata مفقود أو صغير (${engFile.length()} bytes)"
+                initError = "ara.traineddata مفقود (${araFile.length()} bytes)"
                 Log.e(TAG, initError)
                 return
             }
@@ -98,55 +107,67 @@ class OcrProcessor(private val context: Context) {
             try {
                 val header = ByteArray(20)
                 araFile.inputStream().use { it.read(header) }
-                val headerStr = String(header, Charsets.US_ASCII)
-                Log.d(TAG, "ara header: $headerStr")
-                if (headerStr.contains("<") || headerStr.contains("html") || headerStr.contains("DOCTYPE")) {
-                    initError = "ara.traineddata هو صفحة HTML وليس ملف نموذج!"
+                val h = String(header, Charsets.US_ASCII)
+                if (h.contains("<")) {
+                    initError = "ara.traineddata ملف تالف (HTML)"
                     Log.e(TAG, initError)
                     return
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Header check failed", e)
-            }
+            } catch (_: Exception) {}
 
-            // ✅ تهيئة Tesseract
-            Log.d(TAG, "Creating TessBaseAPI...")
+            // ✅ محاولة: عربي + إنجليزي
             tessApi = TessBaseAPI()
-
-            Log.d(TAG, "init(dataPath='$dataPath', lang='ara+eng')")
-            val success = try {
+            var success = try {
                 tessApi!!.init(dataPath, "ara+eng")
             } catch (e: Exception) {
-                Log.e(TAG, "init() exception!", e)
+                Log.e(TAG, "init(ara+eng) threw", e)
                 false
             }
 
-            Log.d(TAG, "init() returned: $success")
+            if (success) {
+                activeLang = "ara+eng"
+                configureApi(tessApi!!)
+                isInitialized = true
+                Log.d(TAG, "READY: ara+eng")
+                return
+            }
+
+            // محاولة: عربي فقط
+            Log.w(TAG, "ara+eng failed, trying ara...")
+            try { tessApi!!.end() } catch (_: Exception) {}
+            tessApi = TessBaseAPI()
+            success = try {
+                tessApi!!.init(dataPath, "ara")
+            } catch (e: Exception) { false }
 
             if (success) {
+                activeLang = "ara"
+                configureApi(tessApi!!)
                 isInitialized = true
-                Log.d(TAG, "READY with ara+eng!")
-            } else {
-                // محاولة إنجليزي فقط
-                Log.w(TAG, "ara+eng failed, trying eng only...")
-                try { tessApi!!.end() } catch (_: Exception) {}
-                tessApi = TessBaseAPI()
-                val s2 = try {
-                    tessApi!!.init(dataPath, "eng")
-                } catch (e: Exception) {
-                    Log.e(TAG, "init(eng) exception!", e)
-                    false
-                }
-                if (s2) {
-                    isInitialized = true
-                    Log.d(TAG, "READY with eng only!")
-                } else {
-                    initError = "init() فشل مع كل اللغات"
-                    Log.e(TAG, initError)
-                    try { tessApi!!.end() } catch (_: Exception) {}
-                    tessApi = null
-                }
+                Log.d(TAG, "READY: ara")
+                return
             }
+
+            // محاولة: إنجليزي فقط
+            Log.w(TAG, "ara failed, trying eng...")
+            try { tessApi!!.end() } catch (_: Exception) {}
+            tessApi = TessBaseAPI()
+            success = try {
+                tessApi!!.init(dataPath, "eng")
+            } catch (e: Exception) { false }
+
+            if (success) {
+                activeLang = "eng"
+                configureApi(tessApi!!)
+                isInitialized = true
+                Log.d(TAG, "READY: eng (Arabic not supported!)")
+                return
+            }
+
+            initError = "init() فشل مع كل اللغات"
+            Log.e(TAG, initError)
+            try { tessApi!!.end() } catch (_: Exception) {}
+            tessApi = null
 
         } catch (e: Exception) {
             initError = "استثناء: ${e.message}"
@@ -155,12 +176,32 @@ class OcrProcessor(private val context: Context) {
         }
     }
 
+    /**
+     * ✅ إعدادات Tesseract لتحسين دقة العربية
+     */
+    private fun configureApi(api: TessBaseAPI) {
+        // PSM_AUTO: اكتشاف تلقائي للتخطيط
+        api.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
+
+        // ✅ إضافة أحرف عربية إضافية إذا كان المعالج يدعمها
+        try {
+            // بعض إصدارات tess-two تدعم setVariable
+            // نحاول فقط — إذا فشل لا مشكلة
+            val method = api.javaClass.getMethod("setVariable", String::class.java, String::class.java)
+            // أحرف إضافية ممكنة
+            method.invoke(api, "tessedit_char_blacklist", "|\\{}[]<>")
+            Log.d(TAG, "setVariable success")
+        } catch (e: Exception) {
+            Log.d(TAG, "setVariable not available (OK)")
+        }
+    }
+
     private fun copyAsset(assetPath: String, destFile: File) {
         try {
             context.assets.open(assetPath).use { input ->
                 destFile.outputStream().use { output ->
                     val bytes = input.copyTo(output)
-                    Log.d(TAG, "Copied $assetPath → ${destFile.name} ($bytes bytes)")
+                    Log.d(TAG, "Copied $assetPath ($bytes bytes)")
                 }
             }
         } catch (e: Exception) {
@@ -168,27 +209,38 @@ class OcrProcessor(private val context: Context) {
         }
     }
 
+    // ═══════════════ معالجة الصورة ═══════════════
+
     private fun ensureArgb8888(bitmap: Bitmap): Bitmap {
         if (bitmap.config == Bitmap.Config.ARGB_8888) return bitmap
         return bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: bitmap
     }
 
-    private fun lightEnhance(bitmap: Bitmap): Bitmap {
-        return try {
-            val result = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
-            Canvas(result).drawBitmap(bitmap, 0f, 0f, Paint().apply {
-                colorFilter = ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
-                    1.2f, 0f, 0f, 0f, -10f,
-                    0f, 1.2f, 0f, 0f, -10f,
-                    0f, 0f, 1.2f, 0f, -10f,
-                    0f, 0f, 0f, 1f, 0f
-                )))
-            })
-            result
-        } catch (_: Exception) { bitmap }
+    /**
+     * ✅ تكبير الصورة إذا كانت صغيرة
+     * Tesseract يعمل أفضل مع دقة 300 DPI
+     * صورة بعرض 500px على شاشة 1080px = نص صغير جداً
+     */
+    private fun scaleUpIfNeeded(bitmap: Bitmap, minDimension: Int = 800): Bitmap {
+        val minSide = minOf(bitmap.width, bitmap.height)
+        if (minSide >= minDimension) {
+            Log.d(TAG, "No scaling needed (min=$minSide >= $minDimension)")
+            return bitmap
+        }
+
+        val scale = minDimension.toFloat() / minSide
+        val newW = (bitmap.width * scale).toInt()
+        val newH = (bitmap.height * scale).toInt()
+
+        Log.d(TAG, "Scaling up: ${bitmap.width}x${bitmap.height} → ${newW}x${newH} (scale=$scale)")
+
+        return Bitmap.createScaledBitmap(bitmap, newW, newH, true)
     }
 
+    // ═══════════════ التنظيف ═══════════════
+
     fun getInitError(): String = initError
+    fun getActiveLanguage(): String = activeLang
 
     fun close() {
         try { tessApi?.end() } catch (_: Exception) {}
