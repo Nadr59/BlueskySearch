@@ -49,8 +49,8 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
 
-    // ✅ tesseract4android — Tesseract 4+ يدعم LSTM والعربي
-    implementation("cz.adaptech.tesseract4android:tesseract4android:4.7.0")
+    // ✅ JitPack — الاسم الصحيح
+    implementation("com.github.adaptech-cz:tesseract4android:4.7.0")
 
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
