@@ -49,8 +49,8 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
 
-    // ✅ tess-two — من Maven Central — مضمون التوفر
-    implementation("com.rmtheis:tess-two:9.1.0")
+    // ✅ ML Kit — للإنجليزي (سريع، بدون إنترنت)
+    implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
 
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
