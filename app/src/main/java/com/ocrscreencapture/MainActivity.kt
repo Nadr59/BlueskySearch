@@ -46,13 +46,13 @@ fun MainScreen() {
     var showApiKeyDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        val prefs = context.getSharedPreferences("ocr_prefs", android.content.Context.MODE_PRIVATE)
-        apiKey = prefs.getString("cloud_vision_api_key", "") ?: ""
+        val p = context.getSharedPreferences("ocr_prefs", Activity.MODE_PRIVATE)
+        apiKey = p.getString("ocr_space_api_key", "") ?: ""
     }
 
     val projManager = remember {
         context.getSystemService(Activity.MEDIA_PROJECTION_SERVICE)
-            as android.media.projection.MediaProjectionManager
+                as android.media.projection.MediaProjectionManager
     }
 
     val projLauncher = rememberLauncherForActivityResult(
@@ -87,78 +87,119 @@ fun MainScreen() {
 
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
-            != android.content.pm.PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(
+                context, Manifest.permission.POST_NOTIFICATIONS
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
             notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+    // ═══════════════ الواجهة ═══════════════
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
+    ) {
         Column(
-            Modifier.fillMaxSize().padding(32.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(32.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(Icons.Default.TextSnippet, null, Modifier.size(80.dp), tint = Color(0xFF4CAF50))
-            Spacer(Modifier.height(24.dp))
+            // الأيقونة
+            Icon(
+                imageVector = Icons.Default.TextSnippet,
+                contentDescription = null,
+                modifier = Modifier.size(80.dp),
+                tint = Color(0xFF4CAF50)
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // العنوان
             Text(
-                "OCR Screen Capture",
+                text = "OCR Screen Capture",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
             )
-            Spacer(Modifier.height(8.dp))
+
+            Spacer(modifier = Modifier.height(8.dp))
+
             Text(
-                "استخراج النصوص من أي منطقة على الشاشة",
+                text = "استخراج النصوص من أي منطقة على الشاشة",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
             )
-            Spacer(Modifier.height(32.dp))
 
-            // حالة OCR
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // ═══════════════ بطاقة حالة OCR ═══════════════
+
             Card(
-                Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = if (apiKey.isNotBlank())
+                    containerColor = if (apiKey.isNotBlank()) {
                         Color(0xFF1B5E20).copy(alpha = 0.3f)
-                    else
+                    } else {
                         Color(0xFFBF360C).copy(alpha = 0.3f)
+                    }
                 )
             ) {
-                Column(Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        if (apiKey.isNotBlank()) "عربي + إنجليزي: مفعّل"
-                        else "إنجليزي فقط (أضف API Key للعربي)",
+                        text = if (apiKey.isNotBlank()) {
+                            "عربي + إنجليزي: مفعّل"
+                        } else {
+                            "إنجليزي فقط (أضف API Key للعربي)"
+                        },
                         fontWeight = FontWeight.Bold,
-                        color = if (apiKey.isNotBlank()) Color(0xFF81C784) else Color(0xFFEF9A9A)
+                        color = if (apiKey.isNotBlank()) {
+                            Color(0xFF81C784)
+                        } else {
+                            Color(0xFFEF9A9A)
+                        }
                     )
-                    Spacer(Modifier.height(8.dp))
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
                     OutlinedButton(
                         onClick = { showApiKeyDialog = true },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(8.dp)
                     ) {
-                        Icon(Icons.Default.Key, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
+                        Icon(
+                            imageVector = Icons.Default.Key,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            if (apiKey.isNotBlank()) "تغيير API Key"
-                            else "إضافة Google Cloud Vision API Key"
+                            text = if (apiKey.isNotBlank()) {
+                                "تغيير API Key"
+                            } else {
+                                "إضافة OCR API Key"
+                            }
                         )
                     }
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // ═══════════════ زر بدء/إيقاف ═══════════════
 
             Button(
                 onClick = {
                     if (isRunning) {
                         context.startService(
-                            Intent(context, FloatingWindowService::class.java)
-                                .apply { action = FloatingWindowService.ACTION_STOP }
+                            Intent(context, FloatingWindowService::class.java).apply {
+                                action = FloatingWindowService.ACTION_STOP
+                            }
                         )
                         isRunning = false
                     } else if (!hasOverlay) {
@@ -172,61 +213,82 @@ fun MainScreen() {
                         try {
                             projLauncher.launch(projManager.createScreenCaptureIntent())
                         } catch (e: Exception) {
-                            Toast.makeText(context, "خطأ: ${e.message}", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(
+                                context, "خطأ: ${e.message}", Toast.LENGTH_SHORT
+                            ).show()
                         }
                     }
                 },
-                Modifier.fillMaxWidth().height(56.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isRunning) Color(0xFFF44336) else Color(0xFF4CAF50)
+                    containerColor = if (isRunning) {
+                        Color(0xFFF44336)
+                    } else {
+                        Color(0xFF4CAF50)
+                    }
                 )
             ) {
                 Icon(
-                    if (isRunning) Icons.Default.Stop else Icons.Default.PlayArrow,
-                    null
+                    imageVector = if (isRunning) {
+                        Icons.Default.Stop
+                    } else {
+                        Icons.Default.PlayArrow
+                    },
+                    contentDescription = null
                 )
-                Spacer(Modifier.width(8.dp))
-                Text(if (isRunning) "إيقاف الخدمة" else "بدء الخدمة", fontSize = 18.sp)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (isRunning) "إيقاف الخدمة" else "بدء الخدمة",
+                    fontSize = 18.sp
+                )
             }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // ═══════════════ زر السجل ═══════════════
 
             OutlinedButton(
                 onClick = {
                     context.startActivity(Intent(context, HistoryActivity::class.java))
                 },
-                Modifier.fillMaxWidth().height(56.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
                 shape = RoundedCornerShape(16.dp)
             ) {
-                Icon(Icons.Default.History, null)
-                Spacer(Modifier.width(8.dp))
-                Text("السجل", fontSize = 18.sp)
+                Icon(imageVector = Icons.Default.History, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = "السجل", fontSize = 18.sp)
             }
 
-            Spacer(Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // ═══════════════ تعليمات الاستخدام ═══════════════
 
             Card(
-                Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(.5f)
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                 )
             ) {
-                Column(Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        "كيفية الاستخدام:",
+                        text = "كيفية الاستخدام:",
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleSmall
                     )
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "1. أضف API Key لدعم العربية (اختياري)\n" +
-                        "2. اضغط \"بدء الخدمة\" واسمح بالأذونات\n" +
-                        "3. اضغط الزر العائم الأخضر\n" +
-                        "4. حدد المنطقة واضغط \"استخراج\"\n" +
-                        "5. بدون API Key: إنجليزي فقط\n" +
-                        "6. مع API Key: عربي + إنجليزي",
+                        text = "1. أضف API Key لدعم العربية (اختياري)\n" +
+                               "2. اضغط \"بدء الخدمة\" واسمح بالأذونات\n" +
+                               "3. اضغط الزر العائم الأخضر\n" +
+                               "4. حدد المنطقة واضغط \"استخراج\"\n" +
+                               "5. بدون API Key: إنجليزي فقط\n" +
+                               "6. مع API Key: عربي + إنجليزي",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -235,50 +297,60 @@ fun MainScreen() {
         }
     }
 
-    // حوار API Key
+    // ═══════════════ حوار API Key ═══════════════
+
     if (showApiKeyDialog) {
         var tempKey by remember { mutableStateOf(apiKey) }
         AlertDialog(
             onDismissRequest = { showApiKeyDialog = false },
-            title = { Text("Google Cloud Vision API Key") },
+            title = {
+                Text(text = "OCR API Key")
+            },
             text = {
                 Column {
                     Text(
-                        "لدعم اللغة العربية، أدخل مفتاح Google Cloud Vision API.\n\n" +
-                        "بدون مفتاح: يعمل الإنجليزي فقط.",
+                        text = "لدعم اللغة العربية:\n\n" +
+                               "1. اذهب إلى:\n" +
+                               "   ocr.space/ocrapi/freekey\n\n" +
+                               "2. أدخل بريدك الإلكتروني\n\n" +
+                               "3. انسخ API Key والصقه هنا\n\n" +
+                               "مجاني: 25,000 طلب/شهر\n" +
+                               "بدون API Key: إنجليزي فقط",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Spacer(Modifier.height(16.dp))
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
                     OutlinedTextField(
                         value = tempKey,
                         onValueChange = { tempKey = it },
-                        label = { Text("API Key") },
+                        label = { Text(text = "API Key") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         shape = RoundedCornerShape(8.dp)
                     )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        "console.cloud.google.com → APIs → Vision API → Credentials",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
-                    val prefs = context.getSharedPreferences(
-                        "ocr_prefs", android.content.Context.MODE_PRIVATE
-                    )
-                    prefs.edit().putString("cloud_vision_api_key", tempKey).apply()
-                    apiKey = tempKey
-                    showApiKeyDialog = false
-                    Toast.makeText(context, "تم الحفظ!", Toast.LENGTH_SHORT).show()
-                }) { Text("حفظ") }
+                TextButton(
+                    onClick = {
+                        val p = context.getSharedPreferences(
+                            "ocr_prefs", Activity.MODE_PRIVATE
+                        )
+                        p.edit().putString("ocr_space_api_key", tempKey).apply()
+                        apiKey = tempKey
+                        showApiKeyDialog = false
+                        Toast.makeText(context, "تم الحفظ!", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text(text = "حفظ")
+                }
             },
             dismissButton = {
-                TextButton(onClick = { showApiKeyDialog = false }) { Text("إلغاء") }
+                TextButton(onClick = { showApiKeyDialog = false }) {
+                    Text(text = "إلغاء")
+                }
             }
         )
     }
