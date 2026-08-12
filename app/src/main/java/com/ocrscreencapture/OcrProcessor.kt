@@ -66,19 +66,19 @@ class OcrProcessor(private val context: Context) {
             Log.d(TAG, "Online: ${isOnline()}")
 
             val result: String
-
-            if (hasApiKey() && isOnline()) {
-                Log.d(TAG, "→ Using OCR.space (Arabic + English)")
-                result = ocrSpaceRecognize(bitmap)
-                if (result.isBlank()) {
-                    Log.w(TAG, "OCR.space empty, falling back to ML Kit")
-                    result.mlKitRecognize(bitmap)
-                }
-            } else {
-                Log.d(TAG, "→ Using ML Kit (English only)")
-                result.mlKitRecognize(bitmap)
-            }
-
+val result = if (hasApiKey() && isOnline()) {
+    Log.d(TAG, "→ Using OCR.space (Arabic + English)")
+    val r = ocrSpaceRecognize(bitmap)
+    if (r.isBlank()) {
+        Log.w(TAG, "OCR.space empty, falling back to ML Kit")
+        mlKitRecognize(bitmap)
+    } else {
+        r
+    }
+} else {
+    Log.d(TAG, "→ Using ML Kit (English only)")
+    mlKitRecognize(bitmap)
+}
             val trimmed = result.trim()
             Log.d(TAG, "═══ Result: ${trimmed.length} chars ═══")
             Log.d(TAG, "'${trimmed.take(200)}'")
