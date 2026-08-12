@@ -8,7 +8,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,56 +23,7 @@ jobs:
         with:
           gradle-version: '8.5'
 
-      # ✅ تحميل بيانات اللغة الصحيحة عبر git clone (لأن المستودع يستخدم Git LFS)
-      - name: Download Tesseract trained data
-        run: |
-          echo "=== Installing Git LFS ==="
-          git lfs install
-
-          echo "=== Cloning tessdata repo ==="
-          git clone --depth 1 https://github.com/tesseract-ocr/tessdata.git /tmp/tessdata
-
-          echo "=== Copying language files ==="
-          mkdir -p app/src/main/assets/tessdata
-          cp /tmp/tessdata/ara.traineddata app/src/main/assets/tessdata/
-          cp /tmp/tessdata/eng.traineddata app/src/main/assets/tessdata/
-
-          echo "=== Cleaning up ==="
-          rm -rf /tmp/tessdata
-
-          echo "=== Verification ==="
-          ls -lh app/src/main/assets/tessdata/
-
-          SIZE_ARA=$(stat -c%s app/src/main/assets/tessdata/ara.traineddata)
-          SIZE_ENG=$(stat -c%s app/src/main/assets/tessdata/eng.traineddata)
-          echo "ara: $SIZE_ARA bytes"
-          echo "eng: $SIZE_ENG bytes"
-
-          # التحقق: الملفات ليست HTML أو Git LFS pointer
-          if head -c 10 app/src/main/assets/tessdata/ara.traineddata | grep -q "version https"; then
-            echo "ERROR: ara.traineddata is a Git LFS pointer, not the real file!"
-            cat app/src/main/assets/tessdata/ara.traineddata
-            exit 1
-          fi
-
-          if head -c 5 app/src/main/assets/tessdata/ara.traineddata | grep -q "<!DOC"; then
-            echo "ERROR: ara.traineddata is HTML!"
-            exit 1
-          fi
-
-          if [ "$SIZE_ARA" -lt 100000 ]; then
-            echo "ERROR: ara.traineddata too small ($SIZE_ARA bytes)!"
-            exit 1
-          fi
-
-          if [ "$SIZE_ENG" -lt 100000 ]; then
-            echo "ERROR: eng.traineddata too small ($SIZE_ENG bytes)!"
-            exit 1
-          fi
-
-          echo "=== Files OK ==="
-
-      - name: Clean Build
+      - name: Build
         run: gradle clean assembleDebug --no-daemon
 
       - name: Upload APK
