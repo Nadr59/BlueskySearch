@@ -24,14 +24,14 @@ jobs:
         with:
           gradle-version: '8.5'
 
-      # ✅ تحميل بيانات اللغة المتوافقة مع Tesseract 3 (tess-two)
+      # ✅ تحميل بيانات LSTM المتوافقة مع Tesseract 4+
       - name: Download Tesseract trained data
         run: |
           mkdir -p app/src/main/assets/tessdata
           curl -L -o app/src/main/assets/tessdata/ara.traineddata \
-            "https://github.com/tesseract-ocr/tessdata/raw/main/ara.traineddata"
+            "https://github.com/tesseract-ocr/tessdata_fast/raw/main/ara.traineddata"
           curl -L -o app/src/main/assets/tessdata/eng.traineddata \
-            "https://github.com/tesseract-ocr/tessdata/raw/main/eng.traineddata"
+            "https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata"
           echo "=== File sizes ==="
           ls -lh app/src/main/assets/tessdata/
 
