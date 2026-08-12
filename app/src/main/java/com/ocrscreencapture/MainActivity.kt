@@ -1,245 +1,285 @@
 package com.ocrscreencapture
 
-import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.ColorMatrix
-import android.graphics.ColorMatrixColorFilter
-import android.graphics.Paint
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
-import android.util.Base64
-import android.util.Log
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.TextRecognizer
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
-import java.io.ByteArrayOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
-import kotlin.coroutines.resume
+import android.Manifest
+import android.app.Activity
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.provider.Settings
+import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import com.ocrscreencapture.ui.theme.OCRCaptureTheme
 
-/**
- * محرك OCR مزدوج:
- * - ML Kit: سريع، بدون إنترنت، للإنجليزي
- * - Google Cloud Vision API: دقيق، يدعم العربي + الإنجليزي + كل اللغات
- */
-class OcrProcessor(private val context: Context) {
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContent { OCRCaptureTheme { MainScreen() } }
+    }
+}
 
-    companion object {
-        private const val TAG = "OcrProcessor"
-        private const val PREF_NAME = "ocr_prefs"
-        private const val KEY_API_KEY = "cloud_vision_api_key"
-        private const val VISION_API_URL =
-            "https://vision.googleapis.com/v1/images:annotate"
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MainScreen() {
+    val context = LocalContext.current
+    var isRunning by remember { mutableStateOf(false) }
+    var hasOverlay by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
+    var apiKey by remember { mutableStateOf("") }
+    var showApiKeyDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        val prefs = context.getSharedPreferences("ocr_prefs", android.content.Context.MODE_PRIVATE)
+        apiKey = prefs.getString("cloud_vision_api_key", "") ?: ""
     }
 
-    private val mlKitRecognizer: TextRecognizer =
-        TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-
-    private val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-
-    // ═══════════════ API Key ═══════════════
-
-    fun getApiKey(): String = prefs.getString(KEY_API_KEY, "") ?: ""
-
-    fun setApiKey(key: String) {
-        prefs.edit().putString(KEY_API_KEY, key).apply()
+    val projManager = remember {
+        context.getSystemService(Activity.MEDIA_PROJECTION_SERVICE)
+            as android.media.projection.MediaProjectionManager
     }
 
-    fun hasApiKey(): Boolean = getApiKey().isNotBlank()
-
-    fun isOnline(): Boolean {
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val net = cm.activeNetwork ?: return false
-        val caps = cm.getNetworkCapabilities(net) ?: return false
-        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-    }
-
-    // ═══════════════ المعالجة الرئيسية ═══════════════
-
-    suspend fun processImage(bitmap: Bitmap): String = withContext(Dispatchers.Default) {
-        try {
-            Log.d(TAG, "═══ Processing ═══")
-            Log.d(TAG, "Input: ${bitmap.width}x${bitmap.height}")
-            Log.d(TAG, "API Key: ${if (hasApiKey()) "موجود" else "غير موجود"}")
-            Log.d(TAG, "Online: ${isOnline()}")
-
-            val safe = ensureArgb8888(bitmap)
-            val scaled = scaleForOcr(safe)
-
-            val result: String
-
-            if (hasApiKey() && isOnline()) {
-                // ✅ Cloud Vision API — يدعم العربي + الإنجليزي
-                Log.d(TAG, "Using Cloud Vision API")
-                result = tryCloudVision(scaled)
-                if (result.isBlank()) {
-                    Log.w(TAG, "Cloud Vision empty, falling back to ML Kit")
-                    result.tryMlKit(scaled)
-                }
+    val projLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            val svc = Intent(context, FloatingWindowService::class.java).apply {
+                putExtra(FloatingWindowService.EXTRA_RESULT_CODE, result.resultCode)
+                putExtra(FloatingWindowService.EXTRA_RESULT_DATA, result.data)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(svc)
             } else {
-                // ✅ ML Kit — للإنجليزي فقط
-                Log.d(TAG, "Using ML Kit (offline/no API key)")
-                result = tryMlKit(scaled)
+                context.startService(svc)
             }
-
-            if (scaled !== safe && scaled !== bitmap && !scaled.isRecycled) scaled.recycle()
-            if (safe !== bitmap && !safe.isRecycled) safe.recycle()
-
-            val trimmed = result.trim()
-            Log.d(TAG, "═══ Result ═══")
-            Log.d(TAG, "Length: ${trimmed.length}")
-            Log.d(TAG, "Text: '${trimmed.take(200)}'")
-            trimmed
-
-        } catch (e: Exception) {
-            Log.e(TAG, "OCR error", e)
-            ""
+            isRunning = true
         }
     }
 
-    // ═══════════════ ML Kit (إنجليزي) ═══════════════
-
-    private suspend fun tryMlKit(bitmap: Bitmap): String {
-        return try {
-            val image = InputImage.fromBitmap(bitmap, 0)
-            recognizeMlKit(image)
-        } catch (e: Exception) {
-            Log.e(TAG, "ML Kit error", e)
-            ""
+    val overlayLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        hasOverlay = Settings.canDrawOverlays(context)
+        if (hasOverlay) {
+            projLauncher.launch(projManager.createScreenCaptureIntent())
         }
     }
 
-    private suspend fun recognizeMlKit(image: InputImage): String =
-        suspendCancellableCoroutine { cont ->
-            mlKitRecognizer.process(image)
-                .addOnSuccessListener { text ->
-                    if (cont.isActive) cont.resume(text.text)
-                }
-                .addOnFailureListener { e ->
-                    Log.e(TAG, "ML Kit fail", e)
-                    if (cont.isActive) cont.resume("")
-                }
-        }
+    val notifLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
 
-    // ═══════════════ Cloud Vision API (عربي + إنجليزي) ═══════════════
-
-    private suspend fun tryCloudVision(bitmap: Bitmap): String = withContext(Dispatchers.IO) {
-        try {
-            Log.d(TAG, "Calling Cloud Vision API...")
-
-            // تحويل الصورة إلى base64
-            val stream = ByteArrayOutputStream()
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream)
-            val base64Image = Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
-            Log.d(TAG, "Image base64 length: ${base64Image.length}")
-
-            // بناء الطلب
-            val requestJson = JSONObject().apply {
-                put("requests", JSONArray().apply {
-                    put(JSONObject().apply {
-                        put("image", JSONObject().apply {
-                            put("content", base64Image)
-                        })
-                        put("features", JSONArray().apply {
-                            put(JSONObject().apply {
-                                put("type", "TEXT_DETECTION")
-                                put("maxResults", 1)
-                            })
-                        })
-                    })
-                })
-            }
-
-            // إرسال الطلب
-            val apiKey = getApiKey()
-            val url = URL("$VISION_API_URL?key=$apiKey")
-            val conn = url.openConnection() as HttpURLConnection
-
-            conn.apply {
-                requestMethod = "POST"
-                setRequestProperty("Content-Type", "application/json")
-                doOutput = true
-                connectTimeout = 15000
-                readTimeout = 15000
-            }
-
-            conn.outputStream.use { os ->
-                os.write(requestJson.toString().toByteArray())
-            }
-
-            val responseCode = conn.responseCode
-            Log.d(TAG, "Vision API response: $responseCode")
-
-            if (responseCode == 200) {
-                val response = conn.inputStream.bufferedReader().readText()
-                parseVisionResponse(response)
-            } else {
-                val error = conn.errorStream?.bufferedReader()?.readText() ?: "Unknown error"
-                Log.e(TAG, "Vision API error $responseCode: $error")
-                ""
-            }
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Cloud Vision error", e)
-            ""
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
+            != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 
-    private fun parseVisionResponse(response: String): String {
-        return try {
-            val json = JSONObject(response)
-            val responses = json.getJSONArray("responses")
-            if (responses.length() == 0) return ""
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Column(
+            Modifier.fillMaxSize().padding(32.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(Icons.Default.TextSnippet, null, Modifier.size(80.dp), tint = Color(0xFF4CAF50))
+            Spacer(Modifier.height(24.dp))
+            Text(
+                "OCR Screen Capture",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "استخراج النصوص من أي منطقة على الشاشة",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.height(32.dp))
 
-            val firstResponse = responses.getJSONObject(0)
-
-            // محاولة 1: fullTextAnnotation (الأفضل)
-            if (firstResponse.has("fullTextAnnotation")) {
-                val fullText = firstResponse.getJSONObject("fullTextAnnotation")
-                return fullText.getString("text")
-            }
-
-            // محاولة 2: textAnnotations
-            if (firstResponse.has("textAnnotations")) {
-                val annotations = firstResponse.getJSONArray("textAnnotations")
-                if (annotations.length() > 0) {
-                    return annotations.getJSONObject(0).getString("description")
+            // حالة OCR
+            Card(
+                Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (apiKey.isNotBlank())
+                        Color(0xFF1B5E20).copy(alpha = 0.3f)
+                    else
+                        Color(0xFFBF360C).copy(alpha = 0.3f)
+                )
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        if (apiKey.isNotBlank()) "عربي + إنجليزي: مفعّل"
+                        else "إنجليزي فقط (أضف API Key للعربي)",
+                        fontWeight = FontWeight.Bold,
+                        color = if (apiKey.isNotBlank()) Color(0xFF81C784) else Color(0xFFEF9A9A)
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { showApiKeyDialog = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.Key, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            if (apiKey.isNotBlank()) "تغيير API Key"
+                            else "إضافة Google Cloud Vision API Key"
+                        )
+                    }
                 }
             }
 
-            ""
-        } catch (e: Exception) {
-            Log.e(TAG, "Parse error", e)
-            ""
+            Spacer(Modifier.height(16.dp))
+
+            Button(
+                onClick = {
+                    if (isRunning) {
+                        context.startService(
+                            Intent(context, FloatingWindowService::class.java)
+                                .apply { action = FloatingWindowService.ACTION_STOP }
+                        )
+                        isRunning = false
+                    } else if (!hasOverlay) {
+                        overlayLauncher.launch(
+                            Intent(
+                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                Uri.parse("package:${context.packageName}")
+                            )
+                        )
+                    } else {
+                        try {
+                            projLauncher.launch(projManager.createScreenCaptureIntent())
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "خطأ: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isRunning) Color(0xFFF44336) else Color(0xFF4CAF50)
+                )
+            ) {
+                Icon(
+                    if (isRunning) Icons.Default.Stop else Icons.Default.PlayArrow,
+                    null
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(if (isRunning) "إيقاف الخدمة" else "بدء الخدمة", fontSize = 18.sp)
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            OutlinedButton(
+                onClick = {
+                    context.startActivity(Intent(context, HistoryActivity::class.java))
+                },
+                Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Icon(Icons.Default.History, null)
+                Spacer(Modifier.width(8.dp))
+                Text("السجل", fontSize = 18.sp)
+            }
+
+            Spacer(Modifier.height(32.dp))
+
+            Card(
+                Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(.5f)
+                )
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        "كيفية الاستخدام:",
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "1. أضف API Key لدعم العربية (اختياري)\n" +
+                        "2. اضغط \"بدء الخدمة\" واسمح بالأذونات\n" +
+                        "3. اضغط الزر العائم الأخضر\n" +
+                        "4. حدد المنطقة واضغط \"استخراج\"\n" +
+                        "5. بدون API Key: إنجليزي فقط\n" +
+                        "6. مع API Key: عربي + إنجليزي",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
         }
     }
 
-    // ═══════════════ مساعدات ═══════════════
-
-    private fun ensureArgb8888(bitmap: Bitmap): Bitmap {
-        if (bitmap.config == Bitmap.Config.ARGB_8888) return bitmap
-        return bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: bitmap
-    }
-
-    private fun scaleForOcr(bitmap: Bitmap, maxDim: Int = 1600): Bitmap {
-        if (bitmap.width <= maxDim && bitmap.height <= maxDim) return bitmap
-        val ratio = minOf(maxDim.toFloat() / bitmap.width, maxDim.toFloat() / bitmap.height)
-        return Bitmap.createScaledBitmap(
-            bitmap,
-            (bitmap.width * ratio).toInt(),
-            (bitmap.height * ratio).toInt(),
-            true
+    // حوار API Key
+    if (showApiKeyDialog) {
+        var tempKey by remember { mutableStateOf(apiKey) }
+        AlertDialog(
+            onDismissRequest = { showApiKeyDialog = false },
+            title = { Text("Google Cloud Vision API Key") },
+            text = {
+                Column {
+                    Text(
+                        "لدعم اللغة العربية، أدخل مفتاح Google Cloud Vision API.\n\n" +
+                        "بدون مفتاح: يعمل الإنجليزي فقط.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = tempKey,
+                        onValueChange = { tempKey = it },
+                        label = { Text("API Key") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "console.cloud.google.com → APIs → Vision API → Credentials",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val prefs = context.getSharedPreferences(
+                        "ocr_prefs", android.content.Context.MODE_PRIVATE
+                    )
+                    prefs.edit().putString("cloud_vision_api_key", tempKey).apply()
+                    apiKey = tempKey
+                    showApiKeyDialog = false
+                    Toast.makeText(context, "تم الحفظ!", Toast.LENGTH_SHORT).show()
+                }) { Text("حفظ") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showApiKeyDialog = false }) { Text("إلغاء") }
+            }
         )
-    }
-
-    fun close() {
-        try { mlKitRecognizer.close() } catch (_: Exception) {}
     }
 }
