@@ -218,7 +218,7 @@ class OcrProcessor(private val context: Context) {
 
             if (json.has("ParsedResults")) {
                 val results = json.getJSONArray("ParsedResults")
-                log("Parse: ${results.length} نتيجة")
+                log("Parse: ${results.length()} نتيجة")
                 if (results.length() > 0) {
                     val first = results.getJSONObject(0)
                     if (first.has("ParsedText")) {
