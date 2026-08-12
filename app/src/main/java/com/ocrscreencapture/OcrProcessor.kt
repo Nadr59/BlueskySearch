@@ -7,7 +7,7 @@ import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.util.Log
-import cz.adaptech.tesseract4android.TessBaseAPI
+import com.googlecode.tesseract.android.TessBaseAPI
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -40,11 +40,18 @@ class OcrProcessor(private val context: Context) {
             val enhanced = lightEnhance(safe)
 
             api.setImage(enhanced)
+
+            // ✅ tess-two يستخدم getUTF8Text()
             val result = api.utF8Text ?: ""
+
             api.clear()
 
-            if (enhanced !== safe && enhanced !== bitmap && !enhanced.isRecycled) enhanced.recycle()
-            if (safe !== bitmap && !safe.isRecycled) safe.recycle()
+            if (enhanced !== safe && enhanced !== bitmap && !enhanced.isRecycled) {
+                enhanced.recycle()
+            }
+            if (safe !== bitmap && !safe.isRecycled) {
+                safe.recycle()
+            }
 
             val trimmed = result.trim()
             Log.d(TAG, "Result: ${trimmed.length} chars = '${trimmed.take(100)}'")
@@ -63,7 +70,6 @@ class OcrProcessor(private val context: Context) {
             val dataPath = context.filesDir.absolutePath
             val tessDir = File(dataPath, "tessdata")
 
-            // نسخ من Assets
             if (!tessDir.exists() || !File(tessDir, "ara.traineddata").exists()) {
                 Log.d(TAG, "Copying from assets...")
                 tessDir.mkdirs()
@@ -77,68 +83,67 @@ class OcrProcessor(private val context: Context) {
             Log.d(TAG, "ara: exists=${araFile.exists()} size=${araFile.length()}")
             Log.d(TAG, "eng: exists=${engFile.exists()} size=${engFile.length()}")
 
-            // التحقق من صحة الملفات
-            if (!araFile.exists() || araFile.length() < 10000) {
-                initError = "ملف ara.traineddata غير موجود أو صغير جداً (${araFile.length()} bytes)"
+            if (!araFile.exists() || araFile.length() < 100000) {
+                initError = "ara.traineddata مفقود أو صغير (${araFile.length()} bytes)"
                 Log.e(TAG, initError)
                 return
             }
-            if (!engFile.exists() || engFile.length() < 10000) {
-                initError = "ملف eng.traineddata غير موجود أو صغير جداً (${engFile.length()} bytes)"
+            if (!engFile.exists() || engFile.length() < 100000) {
+                initError = "eng.traineddata مفقود أو صغير (${engFile.length()} bytes)"
                 Log.e(TAG, initError)
                 return
             }
 
             // التحقق من أن الملف ليس HTML
             try {
-                val firstBytes = ByteArray(20)
-                araFile.inputStream().use { it.read(firstBytes) }
-                val header = String(firstBytes).take(10)
-                Log.d(TAG, "ara header bytes: $header")
-                if (header.contains("<!DOCTYPE") || header.contains("<html")) {
+                val header = ByteArray(20)
+                araFile.inputStream().use { it.read(header) }
+                val headerStr = String(header, Charsets.US_ASCII)
+                Log.d(TAG, "ara header: $headerStr")
+                if (headerStr.contains("<") || headerStr.contains("html") || headerStr.contains("DOCTYPE")) {
                     initError = "ara.traineddata هو صفحة HTML وليس ملف نموذج!"
                     Log.e(TAG, initError)
                     return
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Could not read header", e)
+                Log.w(TAG, "Header check failed", e)
             }
 
-            // تهيئة Tesseract
+            // ✅ تهيئة Tesseract
             Log.d(TAG, "Creating TessBaseAPI...")
             tessApi = TessBaseAPI()
 
-            Log.d(TAG, "Calling init(dataPath, 'ara+eng')...")
-            Log.d(TAG, "dataPath = $dataPath")
-
+            Log.d(TAG, "init(dataPath='$dataPath', lang='ara+eng')")
             val success = try {
                 tessApi!!.init(dataPath, "ara+eng")
             } catch (e: Exception) {
-                Log.e(TAG, "init() threw exception!", e)
+                Log.e(TAG, "init() exception!", e)
                 false
             }
 
             Log.d(TAG, "init() returned: $success")
 
             if (success) {
-                tessApi!!.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
                 isInitialized = true
                 Log.d(TAG, "READY with ara+eng!")
             } else {
-                Log.w(TAG, "ara+eng FAILED, trying eng only...")
-                try { tessApi!!.close() } catch (_: Exception) {}
+                // محاولة إنجليزي فقط
+                Log.w(TAG, "ara+eng failed, trying eng only...")
+                try { tessApi!!.end() } catch (_: Exception) {}
                 tessApi = TessBaseAPI()
-                val s2 = try { tessApi!!.init(dataPath, "eng") } catch (e: Exception) { false }
-                Log.d(TAG, "init(eng) = $s2")
-
+                val s2 = try {
+                    tessApi!!.init(dataPath, "eng")
+                } catch (e: Exception) {
+                    Log.e(TAG, "init(eng) exception!", e)
+                    false
+                }
                 if (s2) {
-                    tessApi!!.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
                     isInitialized = true
-                    Log.d(TAG, "READY with eng!")
+                    Log.d(TAG, "READY with eng only!")
                 } else {
-                    initError = "init() فشل مع eng أيضاً"
+                    initError = "init() فشل مع كل اللغات"
                     Log.e(TAG, initError)
-                    try { tessApi!!.close() } catch (_: Exception) {}
+                    try { tessApi!!.end() } catch (_: Exception) {}
                     tessApi = null
                 }
             }
@@ -186,7 +191,7 @@ class OcrProcessor(private val context: Context) {
     fun getInitError(): String = initError
 
     fun close() {
-        try { tessApi?.close() } catch (_: Exception) {}
+        try { tessApi?.end() } catch (_: Exception) {}
         tessApi = null
         isInitialized = false
     }
