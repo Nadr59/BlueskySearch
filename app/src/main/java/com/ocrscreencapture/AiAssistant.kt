@@ -13,30 +13,81 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * مساعد ذكي يستخدم Google Gemini API
- * مجاني: 15 طلب/دقيقة — أكثر من كافي
+ * مساعد ذكي متعدد المزودين
+ * يجرب المزودين بالترتيب — إذا فشل أحدهم ينتقل للتالي
  */
 class AiAssistant(private val context: Context) {
 
     companion object {
         private const val TAG = "AiAssistant"
         private const val PREF_NAME = "ocr_prefs"
-        private const val KEY_GEMINI = "gemini_api_key"
-        private const val GEMINI_URL =
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
     }
 
     private val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
 
-    // ═══════════════ API Key ═══════════════
+    // ═══════════════ معلومات المزودين ═══════════════
 
-    fun getApiKey(): String = prefs.getString(KEY_GEMINI, "") ?: ""
+    data class Provider(
+        val id: String,
+        val name: String,
+        val nameAr: String,
+        val url: String,
+        val model: String,
+        val freeNote: String
+    )
 
-    fun setApiKey(key: String) {
-        prefs.edit().putString(KEY_GEMINI, key).apply()
+    val providers = listOf(
+        Provider(
+            id = "groq",
+            name = "Groq",
+            nameAr = "Groq (سريع جداً)",
+            url = "https://api.groq.com/openai/v1/chat/completions",
+            model = "llama-3.3-70b-versatile",
+            freeNote = "مجاني — سجل في console.groq.com"
+        ),
+        Provider(
+            id = "gemini",
+            name = "Gemini",
+            nameAr = "Google Gemini",
+            url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+            model = "gemini-2.5-flash",
+            freeNote = "مجاني — aistudio.google.com/app/apikey"
+        ),
+        Provider(
+            id = "openrouter",
+            name = "OpenRouter",
+            nameAr = "OpenRouter (نماذج مجانية)",
+            url = "https://openrouter.ai/api/v1/chat/completions",
+            model = "meta-llama/llama-3.3-70b-instruct:free",
+            freeNote = "مجاني — openrouter.ai/keys"
+        ),
+        Provider(
+            id = "mistral",
+            name = "Mistral",
+            nameAr = "Mistral AI",
+            url = "https://api.mistral.ai/v1/chat/completions",
+            model = "mistral-small-latest",
+            freeNote = "مجاني — console.mistral.ai"
+        )
+    )
+
+    // ═══════════════ إدارة المفاتيح ═══════════════
+
+    fun getKey(providerId: String): String {
+        return prefs.getString("ai_key_$providerId", "") ?: ""
     }
 
-    fun hasApiKey(): Boolean = getApiKey().isNotBlank()
+    fun setKey(providerId: String, key: String) {
+        prefs.edit().putString("ai_key_$providerId", key).apply()
+    }
+
+    fun hasAnyKey(): Boolean {
+        return providers.any { getKey(it.id).isNotBlank() }
+    }
+
+    fun getAvailableProviders(): List<Provider> {
+        return providers.filter { getKey(it.id).isNotBlank() }
+    }
 
     fun isOnline(): Boolean {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -47,17 +98,11 @@ class AiAssistant(private val context: Context) {
 
     // ═══════════════ الأوامر ═══════════════
 
-    /**
-     * شرح النص
-     */
     suspend fun explain(text: String): String {
-        val prompt = "اشرح هذا النص بوضوح وبأسلوب مبسط باللغة العربية:\n\n$text"
-        return callGemini(prompt)
+        val prompt = "اشرح هذا النص بوضوح وبأسلوب مبسط باللغة العربية. استخدم نقاطاً مرتبة:\n\n$text"
+        return callWithFallback(prompt)
     }
 
-    /**
-     * ترجمة النص
-     */
     suspend fun translate(text: String): String {
         val hasArabic = text.any {
             it in '\u0600'..'\u06FF' ||
@@ -67,131 +112,231 @@ class AiAssistant(private val context: Context) {
         }
 
         val prompt = if (hasArabic) {
-            "ترجم هذا النص من العربية إلى الإنجليزية. اكتب الترجمة فقط بدون شرح:\n\n$text"
+            "ترجم هذا النص من العربية إلى الإنجليزية. اكتب الترجمة فقط:\n\n$text"
         } else {
-            "ترجم هذا النص من الإنجليزية إلى العربية. اكتب الترجمة فقط بدون شرح:\n\n$text"
+            "ترجم هذا النص من الإنجليزية إلى العربية. اكتب الترجمة فقط:\n\n$text"
         }
-        return callGemini(prompt)
+        return callWithFallback(prompt)
     }
 
-    /**
-     * التوسع في النص
-     */
     suspend fun expand(text: String): String {
         val prompt = "أعطني معلومات إضافية ومفيدة حول هذا الموضوع. " +
                 "اكتب بأسلوب واضح ومرتب باللغة العربية:\n\n$text"
-        return callGemini(prompt)
+        return callWithFallback(prompt)
+    }
+
+    suspend fun ask(text: String, question: String): String {
+        val prompt = "بناءً على النص التالي:\n\n$text\n\nالسؤال: $question\n\nأجب باللغة العربية:"
+        return callWithFallback(prompt)
+    }
+
+    // ═══════════════ التبديل التلقائي ═══════════════
+
+    private suspend fun callWithFallback(prompt: String): String {
+        if (!isOnline()) {
+            return "لا يوجد اتصال بالإنترنت"
+        }
+
+        val errors = mutableListOf<String>()
+
+        for (provider in providers) {
+            val key = getKey(provider.id)
+            if (key.isBlank()) {
+                continue
+            }
+
+            Log.d(TAG, "Trying ${provider.name}...")
+            val result = tryProvider(provider, key, prompt)
+
+            if (result != null && !result.startsWith("ERROR:")) {
+                Log.d(TAG, "${provider.name} succeeded!")
+                return result
+            }
+
+            val errorMsg = result ?: "Unknown error"
+            Log.w(TAG, "${provider.name} failed: $errorMsg")
+            errors.add("${provider.name}: $errorMsg")
+        }
+
+        return if (errors.isEmpty()) {
+            "لم يتم إدخال أي API Key\nأضف مفتاحاً من إعدادات المساعد الذكي"
+        } else {
+            "فشلت كل المحاولات:\n${errors.joinToString("\n")}"
+        }
     }
 
     /**
-     * سؤال حر
+     * محاولة مزود واحد
      */
-    suspend fun ask(text: String, question: String): String {
-        val prompt = "بناءً على النص التالي:\n\n$text\n\nالسؤال: $question\n\nأجب باللغة العربية:"
-        return callGemini(prompt)
+    private suspend fun tryProvider(
+        provider: Provider,
+        apiKey: String,
+        prompt: String
+    ): String? {
+        return withContext(Dispatchers.IO) {
+            try {
+                if (provider.id == "gemini") {
+                    callGemini(provider, apiKey, prompt)
+                } else {
+                    callOpenAICompatible(provider, apiKey, prompt)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "${provider.id} exception: ${e.message}")
+                "ERROR: ${e.message}"
+            }
+        }
+    }
+
+    // ═══════════════ OpenAI Compatible (Groq, OpenRouter, Mistral) ═══════════════
+
+    private fun callOpenAICompatible(
+        provider: Provider,
+        apiKey: String,
+        prompt: String
+    ): String? {
+        val requestBody = JSONObject().apply {
+            put("model", provider.model)
+            put("messages", JSONArray().apply {
+                put(JSONObject().apply {
+                    put("role", "user")
+                    put("content", prompt)
+                })
+            })
+            put("temperature", 0.7)
+            put("max_tokens", 2048)
+        }
+
+        val url = URL(provider.url)
+        val conn = url.openConnection() as HttpURLConnection
+
+        conn.apply {
+            requestMethod = "POST"
+            setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("Authorization", "Bearer $apiKey")
+            doOutput = true
+            connectTimeout = 30000
+            readTimeout = 60000
+        }
+
+        OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { writer ->
+            writer.write(requestBody.toString())
+            writer.flush()
+        }
+
+        val code = conn.responseCode
+        Log.d(TAG, "${provider.name} response: $code")
+
+        return if (code == 200) {
+            val response = conn.inputStream.bufferedReader().readText()
+            parseOpenAIResponse(response)
+        } else {
+            val err = conn.errorStream?.bufferedReader()?.readText() ?: ""
+            Log.e(TAG, "${provider.name} error $code: ${err.take(200)}")
+            "ERROR: $code — ${parseErrorMessage(err)}"
+        }
+    }
+
+    private fun parseOpenAIResponse(response: String): String? {
+        return try {
+            val json = JSONObject(response)
+            val choices = json.getJSONArray("choices")
+            if (choices.length() > 0) {
+                val message = choices.getJSONObject(0).getJSONObject("message")
+                message.getString("content")
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Parse OpenAI error", e)
+            "ERROR: Parse failed"
+        }
     }
 
     // ═══════════════ Gemini API ═══════════════
 
-    private suspend fun callGemini(prompt: String): String =
-        withContext(Dispatchers.IO) {
-            try {
-                val apiKey = getApiKey()
-                if (apiKey.isBlank()) {
-                    return@withContext "لم يتم إدخال Gemini API Key"
-                }
-
-                Log.d(TAG, "Calling Gemini API...")
-                Log.d(TAG, "Prompt: ${prompt.take(100)}...")
-
-                // بناء الطلب
-                val requestBody = JSONObject().apply {
-                    put("contents", JSONArray().apply {
+    private fun callGemini(
+        provider: Provider,
+        apiKey: String,
+        prompt: String
+    ): String? {
+        val requestBody = JSONObject().apply {
+            put("contents", JSONArray().apply {
+                put(JSONObject().apply {
+                    put("parts", JSONArray().apply {
                         put(JSONObject().apply {
-                            put("parts", JSONArray().apply {
-                                put(JSONObject().apply {
-                                    put("text", prompt)
-                                })
-                            })
+                            put("text", prompt)
                         })
                     })
-                    put("generationConfig", JSONObject().apply {
-                        put("temperature", 0.7)
-                        put("maxOutputTokens", 2048)
-                    })
-                }
-
-                val url = URL("$GEMINI_URL?key=$apiKey")
-                val conn = url.openConnection() as HttpURLConnection
-
-                conn.apply {
-                    requestMethod = "POST"
-                    setRequestProperty("Content-Type", "application/json")
-                    doOutput = true
-                    connectTimeout = 30000
-                    readTimeout = 60000
-                }
-
-                OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { writer ->
-                    writer.write(requestBody.toString())
-                    writer.flush()
-                }
-
-                val code = conn.responseCode
-                Log.d(TAG, "Response: $code")
-
-                if (code == 200) {
-                    val response = conn.inputStream.bufferedReader().readText()
-                    parseGeminiResponse(response)
-                } else {
-                    val err = conn.errorStream?.bufferedReader()?.readText() ?: ""
-                    Log.e(TAG, "Error $code: $err")
-                    parseError(code, err)
-                }
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Gemini error", e)
-                "خطأ: ${e.message}"
-            }
+                })
+            })
+            put("generationConfig", JSONObject().apply {
+                put("temperature", 0.7)
+                put("maxOutputTokens", 2048)
+            })
         }
 
-    private fun parseGeminiResponse(response: String): String {
+        val url = URL("${provider.url}?key=$apiKey")
+        val conn = url.openConnection() as HttpURLConnection
+
+        conn.apply {
+            requestMethod = "POST"
+            setRequestProperty("Content-Type", "application/json")
+            doOutput = true
+            connectTimeout = 30000
+            readTimeout = 60000
+        }
+
+        OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { writer ->
+            writer.write(requestBody.toString())
+            writer.flush()
+        }
+
+        val code = conn.responseCode
+        Log.d(TAG, "Gemini response: $code")
+
+        return if (code == 200) {
+            val response = conn.inputStream.bufferedReader().readText()
+            parseGeminiResponse(response)
+        } else {
+            val err = conn.errorStream?.bufferedReader()?.readText() ?: ""
+            Log.e(TAG, "Gemini error $code: ${err.take(200)}")
+            "ERROR: $code — ${parseErrorMessage(err)}"
+        }
+    }
+
+    private fun parseGeminiResponse(response: String): String? {
         return try {
             val json = JSONObject(response)
             val candidates = json.getJSONArray("candidates")
             if (candidates.length() > 0) {
-                val content = candidates.getJSONObject(0)
-                    .getJSONObject("content")
+                val content = candidates.getJSONObject(0).getJSONObject("content")
                 val parts = content.getJSONArray("parts")
                 if (parts.length() > 0) {
                     return parts.getJSONObject(0).getString("text")
                 }
             }
-            "لم يتم الحصول على رد"
+            null
         } catch (e: Exception) {
-            Log.e(TAG, "Parse error", e)
-            "خطأ في تحليل الرد: ${e.message}"
+            Log.e(TAG, "Parse Gemini error", e)
+            "ERROR: Parse failed"
         }
     }
 
-    private fun parseError(code: Int, error: String): String {
+    // ═══════════════ مساعدات ═══════════════
+
+    private fun parseErrorMessage(error: String): String {
         return try {
             val json = JSONObject(error)
-            if (json.has("error")) {
-                val errObj = json.getJSONObject("error")
-                val message = errObj.optString("message", "Unknown")
-                when (code) {
-                    400 -> "خطأ في الطلب: $message"
-                    403 -> "مفتاح API غير صالح — تأكد من المفتاح"
-                    429 -> "تم تجاوز الحد المسموح — انتظر قليلاً"
-                    500 -> "خطأ في خادم Google — حاول لاحقاً"
-                    else -> "خطأ $code: $message"
+            when {
+                json.has("error") -> {
+                    val errObj = json.getJSONObject("error")
+                    errObj.optString("message", "Unknown")
                 }
-            } else {
-                "خطأ $code"
+                json.has("message") -> json.getString("message")
+                else -> error.take(100)
             }
-        } catch (e: Exception) {
-            "خطأ $code"
+        } catch (_: Exception) {
+            error.take(100)
         }
     }
 }
