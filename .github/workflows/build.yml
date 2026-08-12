@@ -24,38 +24,34 @@ jobs:
         with:
           gradle-version: '8.5'
 
-      # ✅ تحميل بيانات اللغة LEGACY (ليست LSTM)
-      # tess-two يستخدم Tesseract 3 — يحتاج بيانات Legacy
+      # ✅ تحميل بيانات اللغة عبر git clone (لأن المستودع يستخدم Git LFS)
       - name: Download Tesseract trained data
         run: |
+          echo "=== Cloning tessdata repo (includes LFS files) ==="
+          git lfs install
+          git clone --depth 1 https://github.com/tesseract-ocr/tessdata.git /tmp/tessdata
+
+          echo "=== Copying language files ==="
           mkdir -p app/src/main/assets/tessdata
-          echo "=== Downloading Arabic (legacy) ==="
-          curl -L -o app/src/main/assets/tessdata/ara.traineddata \
-            "https://github.com/tesseract-ocr/tessdata/raw/main/ara.traineddata"
-          echo "=== Downloading English (legacy) ==="
-          curl -L -o app/src/main/assets/tessdata/eng.traineddata \
-            "https://github.com/tesseract-ocr/tessdata/raw/main/eng.traineddata"
+          cp /tmp/tessdata/ara.traineddata app/src/main/assets/tessdata/
+          cp /tmp/tessdata/eng.traineddata app/src/main/assets/tessdata/
+
           echo "=== Verification ==="
           ls -lh app/src/main/assets/tessdata/
-          echo "--- Arabic header (should be binary, NOT HTML) ---"
-          head -c 100 app/src/main/assets/tessdata/ara.traineddata | file -
-          echo "--- English header ---"
-          head -c 100 app/src/main/assets/tessdata/eng.traineddata | file -
-          echo "--- Sizes must be > 1MB ---"
+
           SIZE_ARA=$(stat -c%s app/src/main/assets/tessdata/ara.traineddata)
           SIZE_ENG=$(stat -c%s app/src/main/assets/tessdata/eng.traineddata)
-          echo "ara: $SIZE_ARA bytes"
-          echo "eng: $SIZE_ENG bytes"
-          if [ "$SIZE_ARA" -lt 1000000 ]; then
-            echo "ERROR: ara.traineddata too small! Probably HTML error page."
-            cat app/src/main/assets/tessdata/ara.traineddata | head -5
+          echo "ara: $SIZE_ARA bytes (must be > 10MB)"
+          echo "eng: $SIZE_ENG bytes (must be > 3MB)"
+
+          if [ "$SIZE_ARA" -lt 5000000 ]; then
+            echo "ERROR: ara.traineddata too small ($SIZE_ARA bytes)!"
+            echo "Expected > 10MB for Legacy+LSTM model"
+            head -c 200 app/src/main/assets/tessdata/ara.traineddata | file -
             exit 1
           fi
-          if [ "$SIZE_ENG" -lt 1000000 ]; then
-            echo "ERROR: eng.traineddata too small!"
-            exit 1
-          fi
-          echo "=== All files OK ==="
+
+          echo "=== Files OK ==="
 
       - name: Clean Build
         run: gradle clean assembleDebug --no-daemon
