@@ -24,17 +24,38 @@ jobs:
         with:
           gradle-version: '8.5'
 
-      - name: Download Tesseract trained data (LSTM)
+      # ✅ تحميل بيانات اللغة LEGACY (ليست LSTM)
+      # tess-two يستخدم Tesseract 3 — يحتاج بيانات Legacy
+      - name: Download Tesseract trained data
         run: |
           mkdir -p app/src/main/assets/tessdata
+          echo "=== Downloading Arabic (legacy) ==="
           curl -L -o app/src/main/assets/tessdata/ara.traineddata \
-            "https://github.com/tesseract-ocr/tessdata_fast/raw/main/ara.traineddata"
+            "https://github.com/tesseract-ocr/tessdata/raw/main/ara.traineddata"
+          echo "=== Downloading English (legacy) ==="
           curl -L -o app/src/main/assets/tessdata/eng.traineddata \
-            "https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata"
-          echo "=== Sizes ==="
+            "https://github.com/tesseract-ocr/tessdata/raw/main/eng.traineddata"
+          echo "=== Verification ==="
           ls -lh app/src/main/assets/tessdata/
-          echo "=== Hashes ==="
-          md5sum app/src/main/assets/tessdata/*
+          echo "--- Arabic header (should be binary, NOT HTML) ---"
+          head -c 100 app/src/main/assets/tessdata/ara.traineddata | file -
+          echo "--- English header ---"
+          head -c 100 app/src/main/assets/tessdata/eng.traineddata | file -
+          echo "--- Sizes must be > 1MB ---"
+          SIZE_ARA=$(stat -c%s app/src/main/assets/tessdata/ara.traineddata)
+          SIZE_ENG=$(stat -c%s app/src/main/assets/tessdata/eng.traineddata)
+          echo "ara: $SIZE_ARA bytes"
+          echo "eng: $SIZE_ENG bytes"
+          if [ "$SIZE_ARA" -lt 1000000 ]; then
+            echo "ERROR: ara.traineddata too small! Probably HTML error page."
+            cat app/src/main/assets/tessdata/ara.traineddata | head -5
+            exit 1
+          fi
+          if [ "$SIZE_ENG" -lt 1000000 ]; then
+            echo "ERROR: eng.traineddata too small!"
+            exit 1
+          fi
+          echo "=== All files OK ==="
 
       - name: Clean Build
         run: gradle clean assembleDebug --no-daemon
