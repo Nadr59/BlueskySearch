@@ -6,62 +6,91 @@ import android.graphics.Canvas
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.util.Base64
 import android.util.Log
-import com.googlecode.tesseract.android.TessBaseAPI
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.TextRecognizer
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import java.io.File
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.ByteArrayOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import kotlin.coroutines.resume
 
+/**
+ * محرك OCR مزدوج:
+ * - ML Kit: سريع، بدون إنترنت، للإنجليزي
+ * - Google Cloud Vision API: دقيق، يدعم العربي + الإنجليزي + كل اللغات
+ */
 class OcrProcessor(private val context: Context) {
 
     companion object {
         private const val TAG = "OcrProcessor"
+        private const val PREF_NAME = "ocr_prefs"
+        private const val KEY_API_KEY = "cloud_vision_api_key"
+        private const val VISION_API_URL =
+            "https://vision.googleapis.com/v1/images:annotate"
     }
 
-    private var tessApi: TessBaseAPI? = null
-    private var isInitialized = false
-    private var initError: String = ""
-    private var activeLang: String = ""
+    private val mlKitRecognizer: TextRecognizer =
+        TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+
+    private val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+
+    // ═══════════════ API Key ═══════════════
+
+    fun getApiKey(): String = prefs.getString(KEY_API_KEY, "") ?: ""
+
+    fun setApiKey(key: String) {
+        prefs.edit().putString(KEY_API_KEY, key).apply()
+    }
+
+    fun hasApiKey(): Boolean = getApiKey().isNotBlank()
+
+    fun isOnline(): Boolean {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val net = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(net) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    // ═══════════════ المعالجة الرئيسية ═══════════════
 
     suspend fun processImage(bitmap: Bitmap): String = withContext(Dispatchers.Default) {
         try {
-            if (!isInitialized) {
-                initTesseract()
-            }
-
-            val api = tessApi
-            if (api == null || !isInitialized) {
-                Log.e(TAG, "NOT INITIALIZED! Error: $initError")
-                return@withContext ""
-            }
-
             Log.d(TAG, "═══ Processing ═══")
-            Log.d(TAG, "Input: ${bitmap.width}x${bitmap.height} config=${bitmap.config}")
-            Log.d(TAG, "Active language: $activeLang")
+            Log.d(TAG, "Input: ${bitmap.width}x${bitmap.height}")
+            Log.d(TAG, "API Key: ${if (hasApiKey()) "موجود" else "غير موجود"}")
+            Log.d(TAG, "Online: ${isOnline()}")
 
-            // 1) تحويل لـ ARGB_8888
             val safe = ensureArgb8888(bitmap)
-            Log.d(TAG, "Safe: ${safe.width}x${safe.height}")
+            val scaled = scaleForOcr(safe)
 
-            // 2) ✅ لا نُحسّن الصورة — الأصلية أفضل للعربي
-            // التباين الزائد يقتل النقط والتشكيل
+            val result: String
 
-            // 3) ✅ تكبير الصورة الصغيرة (Tesseract يحتاج دقة عالية)
-            val scaled = scaleUpIfNeeded(safe)
-            Log.d(TAG, "Scaled: ${scaled.width}x${scaled.height}")
-
-            // 4) التعرف
-            api.setImage(scaled)
-            val result = api.utF8Text ?: ""
-            api.clear()
-
-            // 5) تنظيف
-            if (scaled !== safe && scaled !== bitmap && !scaled.isRecycled) {
-                scaled.recycle()
+            if (hasApiKey() && isOnline()) {
+                // ✅ Cloud Vision API — يدعم العربي + الإنجليزي
+                Log.d(TAG, "Using Cloud Vision API")
+                result = tryCloudVision(scaled)
+                if (result.isBlank()) {
+                    Log.w(TAG, "Cloud Vision empty, falling back to ML Kit")
+                    result.tryMlKit(scaled)
+                }
+            } else {
+                // ✅ ML Kit — للإنجليزي فقط
+                Log.d(TAG, "Using ML Kit (offline/no API key)")
+                result = tryMlKit(scaled)
             }
-            if (safe !== bitmap && !safe.isRecycled) {
-                safe.recycle()
-            }
+
+            if (scaled !== safe && scaled !== bitmap && !scaled.isRecycled) scaled.recycle()
+            if (safe !== bitmap && !safe.isRecycled) safe.recycle()
 
             val trimmed = result.trim()
             Log.d(TAG, "═══ Result ═══")
@@ -70,181 +99,147 @@ class OcrProcessor(private val context: Context) {
             trimmed
 
         } catch (e: Exception) {
-            Log.e(TAG, "OCR exception", e)
+            Log.e(TAG, "OCR error", e)
             ""
         }
     }
 
-    // ═══════════════ التهيئة ═══════════════
+    // ═══════════════ ML Kit (إنجليزي) ═══════════════
 
-    private fun initTesseract() {
-        try {
-            Log.d(TAG, "=== INIT TESSERACT ===")
+    private suspend fun tryMlKit(bitmap: Bitmap): String {
+        return try {
+            val image = InputImage.fromBitmap(bitmap, 0)
+            recognizeMlKit(image)
+        } catch (e: Exception) {
+            Log.e(TAG, "ML Kit error", e)
+            ""
+        }
+    }
 
-            val dataPath = context.filesDir.absolutePath
-            val tessDir = File(dataPath, "tessdata")
-
-            if (!tessDir.exists() || !File(tessDir, "ara.traineddata").exists()) {
-                Log.d(TAG, "Copying from assets...")
-                tessDir.mkdirs()
-                copyAsset("tessdata/ara.traineddata", File(tessDir, "ara.traineddata"))
-                copyAsset("tessdata/eng.traineddata", File(tessDir, "eng.traineddata"))
-            }
-
-            val araFile = File(tessDir, "ara.traineddata")
-            val engFile = File(tessDir, "eng.traineddata")
-
-            Log.d(TAG, "ara: ${araFile.exists()} ${araFile.length()} bytes")
-            Log.d(TAG, "eng: ${engFile.exists()} ${engFile.length()} bytes")
-
-            if (!araFile.exists() || araFile.length() < 100000) {
-                initError = "ara.traineddata مفقود (${araFile.length()} bytes)"
-                Log.e(TAG, initError)
-                return
-            }
-
-            // التحقق من أن الملف ليس HTML
-            try {
-                val header = ByteArray(20)
-                araFile.inputStream().use { it.read(header) }
-                val h = String(header, Charsets.US_ASCII)
-                if (h.contains("<")) {
-                    initError = "ara.traineddata ملف تالف (HTML)"
-                    Log.e(TAG, initError)
-                    return
+    private suspend fun recognizeMlKit(image: InputImage): String =
+        suspendCancellableCoroutine { cont ->
+            mlKitRecognizer.process(image)
+                .addOnSuccessListener { text ->
+                    if (cont.isActive) cont.resume(text.text)
                 }
-            } catch (_: Exception) {}
+                .addOnFailureListener { e ->
+                    Log.e(TAG, "ML Kit fail", e)
+                    if (cont.isActive) cont.resume("")
+                }
+        }
 
-            // ✅ محاولة: عربي + إنجليزي
-            tessApi = TessBaseAPI()
-            var success = try {
-                tessApi!!.init(dataPath, "ara+eng")
-            } catch (e: Exception) {
-                Log.e(TAG, "init(ara+eng) threw", e)
-                false
+    // ═══════════════ Cloud Vision API (عربي + إنجليزي) ═══════════════
+
+    private suspend fun tryCloudVision(bitmap: Bitmap): String = withContext(Dispatchers.IO) {
+        try {
+            Log.d(TAG, "Calling Cloud Vision API...")
+
+            // تحويل الصورة إلى base64
+            val stream = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+            val base64Image = Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
+            Log.d(TAG, "Image base64 length: ${base64Image.length}")
+
+            // بناء الطلب
+            val requestJson = JSONObject().apply {
+                put("requests", JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("image", JSONObject().apply {
+                            put("content", base64Image)
+                        })
+                        put("features", JSONArray().apply {
+                            put(JSONObject().apply {
+                                put("type", "TEXT_DETECTION")
+                                put("maxResults", 1)
+                            })
+                        })
+                    })
+                })
             }
 
-            if (success) {
-                activeLang = "ara+eng"
-                configureApi(tessApi!!)
-                isInitialized = true
-                Log.d(TAG, "READY: ara+eng")
-                return
+            // إرسال الطلب
+            val apiKey = getApiKey()
+            val url = URL("$VISION_API_URL?key=$apiKey")
+            val conn = url.openConnection() as HttpURLConnection
+
+            conn.apply {
+                requestMethod = "POST"
+                setRequestProperty("Content-Type", "application/json")
+                doOutput = true
+                connectTimeout = 15000
+                readTimeout = 15000
             }
 
-            // محاولة: عربي فقط
-            Log.w(TAG, "ara+eng failed, trying ara...")
-            try { tessApi!!.end() } catch (_: Exception) {}
-            tessApi = TessBaseAPI()
-            success = try {
-                tessApi!!.init(dataPath, "ara")
-            } catch (e: Exception) { false }
-
-            if (success) {
-                activeLang = "ara"
-                configureApi(tessApi!!)
-                isInitialized = true
-                Log.d(TAG, "READY: ara")
-                return
+            conn.outputStream.use { os ->
+                os.write(requestJson.toString().toByteArray())
             }
 
-            // محاولة: إنجليزي فقط
-            Log.w(TAG, "ara failed, trying eng...")
-            try { tessApi!!.end() } catch (_: Exception) {}
-            tessApi = TessBaseAPI()
-            success = try {
-                tessApi!!.init(dataPath, "eng")
-            } catch (e: Exception) { false }
+            val responseCode = conn.responseCode
+            Log.d(TAG, "Vision API response: $responseCode")
 
-            if (success) {
-                activeLang = "eng"
-                configureApi(tessApi!!)
-                isInitialized = true
-                Log.d(TAG, "READY: eng (Arabic not supported!)")
-                return
+            if (responseCode == 200) {
+                val response = conn.inputStream.bufferedReader().readText()
+                parseVisionResponse(response)
+            } else {
+                val error = conn.errorStream?.bufferedReader()?.readText() ?: "Unknown error"
+                Log.e(TAG, "Vision API error $responseCode: $error")
+                ""
             }
-
-            initError = "init() فشل مع كل اللغات"
-            Log.e(TAG, initError)
-            try { tessApi!!.end() } catch (_: Exception) {}
-            tessApi = null
 
         } catch (e: Exception) {
-            initError = "استثناء: ${e.message}"
-            Log.e(TAG, "Init exception!", e)
-            tessApi = null
+            Log.e(TAG, "Cloud Vision error", e)
+            ""
         }
     }
 
-    /**
-     * ✅ إعدادات Tesseract لتحسين دقة العربية
-     */
-    private fun configureApi(api: TessBaseAPI) {
-        // PSM_AUTO: اكتشاف تلقائي للتخطيط
-        api.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
+    private fun parseVisionResponse(response: String): String {
+        return try {
+            val json = JSONObject(response)
+            val responses = json.getJSONArray("responses")
+            if (responses.length() == 0) return ""
 
-        // ✅ إضافة أحرف عربية إضافية إذا كان المعالج يدعمها
-        try {
-            // بعض إصدارات tess-two تدعم setVariable
-            // نحاول فقط — إذا فشل لا مشكلة
-            val method = api.javaClass.getMethod("setVariable", String::class.java, String::class.java)
-            // أحرف إضافية ممكنة
-            method.invoke(api, "tessedit_char_blacklist", "|\\{}[]<>")
-            Log.d(TAG, "setVariable success")
-        } catch (e: Exception) {
-            Log.d(TAG, "setVariable not available (OK)")
-        }
-    }
+            val firstResponse = responses.getJSONObject(0)
 
-    private fun copyAsset(assetPath: String, destFile: File) {
-        try {
-            context.assets.open(assetPath).use { input ->
-                destFile.outputStream().use { output ->
-                    val bytes = input.copyTo(output)
-                    Log.d(TAG, "Copied $assetPath ($bytes bytes)")
+            // محاولة 1: fullTextAnnotation (الأفضل)
+            if (firstResponse.has("fullTextAnnotation")) {
+                val fullText = firstResponse.getJSONObject("fullTextAnnotation")
+                return fullText.getString("text")
+            }
+
+            // محاولة 2: textAnnotations
+            if (firstResponse.has("textAnnotations")) {
+                val annotations = firstResponse.getJSONArray("textAnnotations")
+                if (annotations.length() > 0) {
+                    return annotations.getJSONObject(0).getString("description")
                 }
             }
+
+            ""
         } catch (e: Exception) {
-            Log.e(TAG, "Copy failed: $assetPath", e)
+            Log.e(TAG, "Parse error", e)
+            ""
         }
     }
 
-    // ═══════════════ معالجة الصورة ═══════════════
+    // ═══════════════ مساعدات ═══════════════
 
     private fun ensureArgb8888(bitmap: Bitmap): Bitmap {
         if (bitmap.config == Bitmap.Config.ARGB_8888) return bitmap
         return bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: bitmap
     }
 
-    /**
-     * ✅ تكبير الصورة إذا كانت صغيرة
-     * Tesseract يعمل أفضل مع دقة 300 DPI
-     * صورة بعرض 500px على شاشة 1080px = نص صغير جداً
-     */
-    private fun scaleUpIfNeeded(bitmap: Bitmap, minDimension: Int = 800): Bitmap {
-        val minSide = minOf(bitmap.width, bitmap.height)
-        if (minSide >= minDimension) {
-            Log.d(TAG, "No scaling needed (min=$minSide >= $minDimension)")
-            return bitmap
-        }
-
-        val scale = minDimension.toFloat() / minSide
-        val newW = (bitmap.width * scale).toInt()
-        val newH = (bitmap.height * scale).toInt()
-
-        Log.d(TAG, "Scaling up: ${bitmap.width}x${bitmap.height} → ${newW}x${newH} (scale=$scale)")
-
-        return Bitmap.createScaledBitmap(bitmap, newW, newH, true)
+    private fun scaleForOcr(bitmap: Bitmap, maxDim: Int = 1600): Bitmap {
+        if (bitmap.width <= maxDim && bitmap.height <= maxDim) return bitmap
+        val ratio = minOf(maxDim.toFloat() / bitmap.width, maxDim.toFloat() / bitmap.height)
+        return Bitmap.createScaledBitmap(
+            bitmap,
+            (bitmap.width * ratio).toInt(),
+            (bitmap.height * ratio).toInt(),
+            true
+        )
     }
 
-    // ═══════════════ التنظيف ═══════════════
-
-    fun getInitError(): String = initError
-    fun getActiveLanguage(): String = activeLang
-
     fun close() {
-        try { tessApi?.end() } catch (_: Exception) {}
-        tessApi = null
-        isInitialized = false
+        try { mlKitRecognizer.close() } catch (_: Exception) {}
     }
 }
