@@ -2,10 +2,6 @@ package com.ocrscreencapture
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.ColorMatrix
-import android.graphics.ColorMatrixColorFilter
-import android.graphics.Paint
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.util.Base64
@@ -17,21 +13,25 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 import kotlin.coroutines.resume
 
+/**
+ * محرك OCR مزدوج:
+ * - ML Kit: مجاني، بدون إنترنت، للإنجليزي
+ * - OCR.space: مجاني، يدعم العربي + الإنجليزي
+ */
 class OcrProcessor(private val context: Context) {
 
     companion object {
         private const val TAG = "OcrProcessor"
         private const val PREF_NAME = "ocr_prefs"
-        private const val KEY_API_KEY = "cloud_vision_api_key"
-        private const val VISION_API_URL =
-            "https://vision.googleapis.com/v1/images:annotate"
+        private const val KEY_API_KEY = "ocr_space_api_key"
+        private const val OCR_SPACE_URL = "https://api.ocr.space/parse/image"
     }
 
     private val mlKitRecognizer: TextRecognizer =
@@ -65,25 +65,19 @@ class OcrProcessor(private val context: Context) {
             Log.d(TAG, "API Key: ${if (hasApiKey()) "yes" else "no"}")
             Log.d(TAG, "Online: ${isOnline()}")
 
-            val safe = ensureArgb8888(bitmap)
-            val scaled = scaleForOcr(safe)
+            val result: String
 
-            val result: String = if (hasApiKey() && isOnline()) {
-                Log.d(TAG, "Using Cloud Vision API")
-                val cloudResult = cloudVisionRecognize(scaled)
-                if (cloudResult.isNotBlank()) {
-                    cloudResult
-                } else {
-                    Log.w(TAG, "Cloud Vision empty, falling back to ML Kit")
-                    mlKitRecognize(scaled)
+            if (hasApiKey() && isOnline()) {
+                Log.d(TAG, "→ Using OCR.space (Arabic + English)")
+                result = ocrSpaceRecognize(bitmap)
+                if (result.isBlank()) {
+                    Log.w(TAG, "OCR.space empty, falling back to ML Kit")
+                    result.mlKitRecognize(bitmap)
                 }
             } else {
-                Log.d(TAG, "Using ML Kit (offline or no API key)")
-                mlKitRecognize(scaled)
+                Log.d(TAG, "→ Using ML Kit (English only)")
+                result.mlKitRecognize(bitmap)
             }
-
-            if (scaled !== safe && scaled !== bitmap && !scaled.isRecycled) scaled.recycle()
-            if (safe !== bitmap && !safe.isRecycled) safe.recycle()
 
             val trimmed = result.trim()
             Log.d(TAG, "═══ Result: ${trimmed.length} chars ═══")
@@ -96,7 +90,7 @@ class OcrProcessor(private val context: Context) {
         }
     }
 
-    // ═══════════════ ML Kit ═══════════════
+    // ═══════════════ ML Kit (إنجليزي) ═══════════════
 
     private suspend fun mlKitRecognize(bitmap: Bitmap): String {
         return try {
@@ -117,79 +111,99 @@ class OcrProcessor(private val context: Context) {
         }
     }
 
-    // ═══════════════ Cloud Vision API ═══════════════
+    // ═══════════════ OCR.space API (عربي + إنجليزي) ═══════════════
 
-    private suspend fun cloudVisionRecognize(bitmap: Bitmap): String =
+    private suspend fun ocrSpaceRecognize(bitmap: Bitmap): String =
         withContext(Dispatchers.IO) {
             try {
-                Log.d(TAG, "Calling Cloud Vision API...")
+                Log.d(TAG, "Calling OCR.space API...")
 
+                // تحويل الصورة إلى base64
                 val stream = ByteArrayOutputStream()
                 bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream)
                 val base64 = Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
                 Log.d(TAG, "Base64 length: ${base64.length}")
 
-                val request = JSONObject().apply {
-                    put("requests", JSONArray().apply {
-                        put(JSONObject().apply {
-                            put("image", JSONObject().apply {
-                                put("content", base64)
-                            })
-                            put("features", JSONArray().apply {
-                                put(JSONObject().apply {
-                                    put("type", "TEXT_DETECTION")
-                                    put("maxResults", 1)
-                                })
-                            })
-                        })
-                    })
+                // بناء الطلب (multipart/form-data)
+                val boundary = "----WebKitFormBoundary" + System.currentTimeMillis()
+                val body = buildString {
+                    // الصورة
+                    append("--$boundary\r\n")
+                    append("Content-Disposition: form-data; name=\"base64Image\"\r\n\r\n")
+                    append("data:image/jpeg;base64,$base64\r\n")
+
+                    // اللغة: عربي + إنجليزي
+                    append("--$boundary\r\n")
+                    append("Content-Disposition: form-data; name=\"language\"\r\n\r\n")
+                    append("ara\r\n")
+
+                    // نوع المحرك: Engine 2 أفضل للعربي
+                    append("--$boundary\r\n")
+                    append("Content-Disposition: form-data; name=\"OCREngine\"\r\n\r\n")
+                    append("2\r\n")
+
+                    // هل هو ملف مضغوط (صورة)
+                    append("--$boundary\r\n")
+                    append("Content-Disposition: form-data; name=\"isOverlayRequired\"\r\n\r\n")
+                    append("false\r\n")
+
+                    append("--$boundary--\r\n")
                 }
 
                 val apiKey = getApiKey()
-                val url = URL("$VISION_API_URL?key=$apiKey")
+                val url = URL(OCR_SPACE_URL)
                 val conn = url.openConnection() as HttpURLConnection
-                conn.requestMethod = "POST"
-                conn.setRequestProperty("Content-Type", "application/json")
-                conn.doOutput = true
-                conn.connectTimeout = 15000
-                conn.readTimeout = 15000
 
-                conn.outputStream.use { it.write(request.toString().toByteArray()) }
+                conn.apply {
+                    requestMethod = "POST"
+                    setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+                    setRequestProperty("apikey", apiKey)
+                    doOutput = true
+                    connectTimeout = 30000
+                    readTimeout = 30000
+                }
+
+                conn.outputStream.use { os ->
+                    os.write(body.toByteArray(Charsets.UTF_8))
+                }
 
                 val code = conn.responseCode
-                Log.d(TAG, "Response: $code")
+                Log.d(TAG, "OCR.space response: $code")
 
                 if (code == 200) {
-                    val body = conn.inputStream.bufferedReader().readText()
-                    parseVisionResponse(body)
+                    val response = conn.inputStream.bufferedReader().readText()
+                    Log.d(TAG, "Response: ${response.take(500)}")
+                    parseOcrSpaceResponse(response)
                 } else {
                     val err = conn.errorStream?.bufferedReader()?.readText() ?: ""
-                    Log.e(TAG, "Error $code: $err")
+                    Log.e(TAG, "OCR.space error $code: $err")
                     ""
                 }
+
             } catch (e: Exception) {
-                Log.e(TAG, "Cloud Vision error", e)
+                Log.e(TAG, "OCR.space error", e)
                 ""
             }
         }
 
-    private fun parseVisionResponse(response: String): String {
+    private fun parseOcrSpaceResponse(response: String): String {
         return try {
-            val json = JSONObject(response)
-            val responses = json.getJSONArray("responses")
-            if (responses.length() == 0) return ""
+            val json = org.json.JSONObject(response)
 
-            val first = responses.getJSONObject(0)
-
-            if (first.has("fullTextAnnotation")) {
-                return first.getJSONObject("fullTextAnnotation").getString("text")
-            }
-            if (first.has("textAnnotations")) {
-                val ann = first.getJSONArray("textAnnotations")
-                if (ann.length() > 0) {
-                    return ann.getJSONObject(0).getString("description")
+            if (json.has("ParsedResults")) {
+                val results = json.getJSONArray("ParsedResults")
+                if (results.length() > 0) {
+                    val first = results.getJSONObject(0)
+                    if (first.has("ParsedText")) {
+                        return first.getString("ParsedText")
+                    }
                 }
             }
+
+            if (json.has("ErrorMessage")) {
+                Log.e(TAG, "OCR.space error: ${json.getString("ErrorMessage")}")
+            }
+
             ""
         } catch (e: Exception) {
             Log.e(TAG, "Parse error", e)
@@ -197,18 +211,7 @@ class OcrProcessor(private val context: Context) {
         }
     }
 
-    // ═══════════════ مساعدات ═══════════════
-
-    private fun ensureArgb8888(b: Bitmap): Bitmap {
-        if (b.config == Bitmap.Config.ARGB_8888) return b
-        return b.copy(Bitmap.Config.ARGB_8888, false) ?: b
-    }
-
-    private fun scaleForOcr(b: Bitmap, max: Int = 1600): Bitmap {
-        if (b.width <= max && b.height <= max) return b
-        val r = minOf(max.toFloat() / b.width, max.toFloat() / b.height)
-        return Bitmap.createScaledBitmap(b, (b.width * r).toInt(), (b.height * r).toInt(), true)
-    }
+    // ═══════════════ Cleanup ═══════════════
 
     fun close() {
         try { mlKitRecognizer.close() } catch (_: Exception) {}
