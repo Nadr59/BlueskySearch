@@ -110,7 +110,7 @@ class OcrProcessor(private val context: Context) {
                 Log.d(TAG, "Tesseract initialized successfully! Language: ara+eng")
             } else {
                 Log.e(TAG, "TessBaseAPI.init() returned false!")
-                tessApi?.recycle()
+                tessApi?.end()
                 tessApi = null
             }
 
@@ -178,10 +178,10 @@ class OcrProcessor(private val context: Context) {
      * تحرير الموارد
      */
     fun close() {
-        try {
-            tessApi?.recycle()
-        } catch (_: Exception) {}
-        tessApi = null
-        isInitialized = false
+    try {
+        tessApi?.end()
+    } catch (_: Exception) {}
+    tessApi = null
+    isInitialized = false
     }
 }
