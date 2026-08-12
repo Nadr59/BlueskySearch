@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
+import android.graphics.ColorSpace
 import android.graphics.Paint
 import android.util.Log
 import com.googlecode.tesseract.android.TessBaseAPI
@@ -12,10 +13,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 
-/**
- * معالج التعرف الضوئي على الحروف باستخدام Tesseract 4
- * يدعم: العربية ✅ + الإنجليزية ✅ + 100 لغة أخرى
- */
 class OcrProcessor(private val context: Context) {
 
     companion object {
@@ -25,163 +22,187 @@ class OcrProcessor(private val context: Context) {
     private var tessApi: TessBaseAPI? = null
     private var isInitialized = false
 
-    /**
-     * معالجة الصورة واستخراج النص
-     * يُنشئ Tesseract عند أول استدعاء (lazy init)
-     */
     suspend fun processImage(bitmap: Bitmap): String = withContext(Dispatchers.Default) {
         try {
-            // تهيئة Tesseract إذا لم يتم بعد
             if (!isInitialized) {
                 initTesseract()
             }
 
             val api = tessApi
             if (api == null || !isInitialized) {
-                Log.e(TAG, "Tesseract not initialized!")
-                return@withContext ""
+                Log.e(TAG, "❌ Tesseract not initialized!")
+                return@withContext "خطأ: Tesseract غير مهيأ"
             }
 
-            Log.d(TAG, "Processing: ${bitmap.width}x${bitmap.height}")
+            Log.d(TAG, "═══ بدء المعالجة ═══")
+            Log.d(TAG, "الأبعاد الأصلية: ${bitmap.width}x${bitmap.height}")
+            Log.d(TAG, "Config: ${bitmap.config}")
 
-            // تحسين الصورة
-            val enhanced = enhanceContrast(bitmap)
-            val compressed = compressBitmap(enhanced)
+            // ✅ تحويل الصورة لـ ARGB_8888 إذا لم تكن كذلك
+            val safeBitmap = ensureArgb8888(bitmap)
+            Log.d(TAG, "الأبعاد الآمنة: ${safeBitmap.width}x${safeBitmap.height} Config: ${safeBitmap.config}")
+
+            // ✅ تحسين بسيط فقط (لا تبالغ!)
+            val enhanced = lightEnhance(safeBitmap)
+            Log.d(TAG, "بعد التحسين: ${enhanced.width}x${enhanced.height}")
 
             // ✅ التعرف على النص
-            api.setImage(compressed)
-            val result = api.getUTF8Text() ?: ""
+            api.setImage(enhanced)
+            Log.d(TAG, "setImage نجح")
+
+            val result = api.utF8Text ?: ""
             api.clear()
+            Log.d(TAG, "═══ النتيجة ═══")
+            Log.d(TAG, "طول النص: ${result.length}")
+            Log.d(TAG, "النص: '${result.take(200)}'")
 
             // تحرير الذاكرة
-            if (enhanced !== bitmap && !enhanced.isRecycled) enhanced.recycle()
-            if (compressed !== enhanced && compressed !== bitmap && !compressed.isRecycled) {
-                compressed.recycle()
+            if (enhanced !== safeBitmap && enhanced !== bitmap && !enhanced.isRecycled) {
+                enhanced.recycle()
+            }
+            if (safeBitmap !== bitmap && !safeBitmap.isRecycled) {
+                safeBitmap.recycle()
             }
 
-            val trimmed = result.trim()
-            Log.d(TAG, "Result: ${trimmed.length} chars = '${trimmed.take(80)}'")
-            trimmed
+            result.trim()
 
         } catch (e: Exception) {
-            Log.e(TAG, "OCR error", e)
-            ""
+            Log.e(TAG, "❌ خطأ في OCR", e)
+            "خطأ: ${e.message}"
         }
     }
 
-    /**
-     * تهيئة Tesseract — نسخ بيانات اللغة من Assets إلى التخزين الداخلي
-     */
+    // ═══════════════ التهيئة ═══════════════
+
     private fun initTesseract() {
         try {
+            Log.d(TAG, "═══ تهيئة Tesseract ═══")
+
             val dataPath = context.filesDir.absolutePath
             val tessDir = File(dataPath, "tessdata")
+            Log.d(TAG, "مسار البيانات: $dataPath")
+            Log.d(TAG, "مجلد tessdata: ${tessDir.absolutePath}")
 
-            // نسخ ملفات اللغة إذا لم تكن موجودة
+            // ✅ نسخ بيانات اللغة
             if (!tessDir.exists() || !File(tessDir, "ara.traineddata").exists()) {
-                Log.d(TAG, "Copying trained data from assets...")
+                Log.d(TAG, "نسخ بيانات اللغة من Assets...")
                 tessDir.mkdirs()
                 copyAsset("tessdata/ara.traineddata", File(tessDir, "ara.traineddata"))
                 copyAsset("tessdata/eng.traineddata", File(tessDir, "eng.traineddata"))
             }
 
-            // التحقق من وجود الملفات
+            // ✅ التحقق من الملفات
             val araFile = File(tessDir, "ara.traineddata")
             val engFile = File(tessDir, "eng.traineddata")
 
-            if (!araFile.exists()) {
-                Log.e(TAG, "ara.traineddata NOT FOUND at: ${araFile.absolutePath}")
-                return
-            }
-            if (!engFile.exists()) {
-                Log.e(TAG, "eng.traineddata NOT FOUND at: ${engFile.absolutePath}")
+            Log.d(TAG, "ara.traineddata موجود: ${araFile.exists()} حجم: ${araFile.length()}")
+            Log.d(TAG, "eng.traineddata موجود: ${engFile.exists()} حجم: ${engFile.length()}")
+
+            if (!araFile.exists() || araFile.length() < 1000) {
+                Log.e(TAG, "❌ ملف اللغة العربية غير موجود أو فارغ!")
                 return
             }
 
-            Log.d(TAG, "ara.traineddata: ${araFile.length()} bytes")
-            Log.d(TAG, "eng.traineddata: ${engFile.length()} bytes")
-
-            // تهيئة Tesseract
+            // ✅ تهيئة — جرّب "ara+eng" ثم "ara" ثم "eng"
             tessApi = TessBaseAPI()
-            val success = tessApi!!.init(dataPath, "ara+eng")
+
+            // محاولة 1: عربي + إنجليزي
+            var success = tessApi!!.init(dataPath, "ara+eng")
+            Log.d(TAG, "init(ara+eng) = $success")
+
+            if (!success) {
+                // محاولة 2: عربي فقط
+                Log.w(TAG, "فشل ara+eng، جاري المحاولة مع ara فقط...")
+                tessApi!!.end()
+                tessApi = TessBaseAPI()
+                success = tessApi!!.init(dataPath, "ara")
+                Log.d(TAG, "init(ara) = $success")
+            }
+
+            if (!success) {
+                // محاولة 3: إنجليزي فقط
+                Log.w(TAG, "فشل ara، جاري المحاولة مع eng فقط...")
+                tessApi!!.end()
+                tessApi = TessBaseAPI()
+                success = tessApi!!.init(dataPath, "eng")
+                Log.d(TAG, "init(eng) = $success")
+            }
 
             if (success) {
+                // ✅ إعدادات لتحسين الدقة
+                tessApi!!.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
                 isInitialized = true
-                Log.d(TAG, "Tesseract initialized successfully! Language: ara+eng")
+                Log.d(TAG, "✅ Tesseract جاهز!")
             } else {
-                Log.e(TAG, "TessBaseAPI.init() returned false!")
+                Log.e(TAG, "❌ فشل التهيئة بكل اللغات!")
                 tessApi?.end()
                 tessApi = null
             }
 
         } catch (e: Exception) {
-            Log.e(TAG, "Tesseract init failed", e)
+            Log.e(TAG, "❌ خطأ في التهيئة", e)
             tessApi = null
         }
     }
 
-    /**
-     * نسخ ملف من Assets إلى التخزين الداخلي
-     */
     private fun copyAsset(assetPath: String, destFile: File) {
         try {
             context.assets.open(assetPath).use { input ->
                 destFile.outputStream().use { output ->
                     val bytes = input.copyTo(output)
-                    Log.d(TAG, "Copied $assetPath → ${destFile.absolutePath} ($bytes bytes)")
+                    Log.d(TAG, "نسخ: $assetPath → ${destFile.name} ($bytes بايت)")
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to copy asset: $assetPath", e)
+            Log.e(TAG, "فشل نسخ: $assetPath", e)
         }
     }
 
+    // ═══════════════ معالجة الصورة ═══════════════
+
     /**
-     * تحسين تباين الصورة لدقة OCR أفضل
+     * ✅ تأكد أن الصورة ARGB_8888 (مطلوب لـ Tesseract)
      */
-    private fun enhanceContrast(bitmap: Bitmap): Bitmap {
+    private fun ensureArgb8888(bitmap: Bitmap): Bitmap {
+        if (bitmap.config == Bitmap.Config.ARGB_8888) return bitmap
+        Log.w(TAG, "تحويل من ${bitmap.config} إلى ARGB_8888")
+        return bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: bitmap
+    }
+
+    /**
+     * ✅ تحسين خفيف — لا تبالغ بالتباين!
+     */
+    private fun lightEnhance(bitmap: Bitmap): Bitmap {
         return try {
             val result = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(result)
+
+            // ✅ تحسين خفيف: تباين 1.2x فقط (ليس 1.5x!)
             val paint = Paint().apply {
                 colorFilter = ColorMatrixColorFilter(
                     ColorMatrix(floatArrayOf(
-                        1.5f, 0f, 0f, 0f, -25f,
-                        0f, 1.5f, 0f, 0f, -25f,
-                        0f, 0f, 1.5f, 0f, -25f,
+                        1.2f, 0f, 0f, 0f, -10f,
+                        0f, 1.2f, 0f, 0f, -10f,
+                        0f, 0f, 1.2f, 0f, -10f,
                         0f, 0f, 0f, 1f, 0f
                     ))
                 )
+                isFilterBitmap = true
             }
             canvas.drawBitmap(bitmap, 0f, 0f, paint)
             result
         } catch (e: Exception) {
+            Log.w(TAG, "فشل التحسين، استخدام الأصلية", e)
             bitmap
         }
     }
 
-    /**
-     * ضغط الصورة لتقليل وقت المعالجة
-     */
-    private fun compressBitmap(bitmap: Bitmap, maxDim: Int = 1920): Bitmap {
-        if (bitmap.width <= maxDim && bitmap.height <= maxDim) return bitmap
-        val ratio = minOf(maxDim.toFloat() / bitmap.width, maxDim.toFloat() / bitmap.height)
-        return Bitmap.createScaledBitmap(
-            bitmap,
-            (bitmap.width * ratio).toInt(),
-            (bitmap.height * ratio).toInt(),
-            true
-        )
-    }
+    // ═══════════════ التنظيف ═══════════════
 
-    /**
-     * تحرير الموارد
-     */
     fun close() {
-    try {
-        tessApi?.end()
-    } catch (_: Exception) {}
-    tessApi = null
-    isInitialized = false
+        try { tessApi?.end() } catch (_: Exception) {}
+        tessApi = null
+        isInitialized = false
+        Log.d(TAG, "تم إغلاق Tesseract")
     }
 }
