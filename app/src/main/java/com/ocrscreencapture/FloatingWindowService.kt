@@ -335,13 +335,16 @@ class FloatingWindowService : Service() {
 
                 // === الخطوة 7: عرض النتيجة ===
         
+// ✅ إذا فشل OCR — أظهر السبب الحقيقي
 if (text.isBlank()) {
-    showDebug("❌ لم يتم العثور على نص — راجع Logcat", true)
-    delay(3000)
-} else if (text.startsWith("خطأ")) {
-    // ✅ عرض رسالة الخطأ بدلاً من افتراض عدم وجود نص
-    showDebug("❌ $text", true)
+    val err = ocrProcessor.getInitError()
+    if (err.isNotEmpty()) {
+        showDebug("❌ $err", true)
+    } else {
+        showDebug("❌ لم يتم العثور على نص — جرّب منطقة أكبر", true)
+    }
     delay(5000)
+}
 } else {
     // ✅ النص المستخرج
     showDebug("✓ تم! ${text.length} حرف", false)
