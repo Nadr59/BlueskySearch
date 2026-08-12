@@ -334,29 +334,35 @@ class FloatingWindowService : Service() {
                 cropped.recycle()
 
                 // === الخطوة 7: عرض النتيجة ===
-                if (text.isBlank()) {
-                    showDebug("❌ لم يتم العثور على نص — جرّب منطقة أكبر", true)
-                    delay(3000)
-                } else {
-                    showDebug("✓ تم! ${text.length} حرف — فتح النتيجة...")
-                    delay(500)
-                    try {
-                        startActivity(
-                            Intent(this@FloatingWindowService, TextResultActivity::class.java).apply {
-                                putExtra("extracted_text", text)
-                                addFlags(
-                                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                                    Intent.FLAG_ACTIVITY_SINGLE_TOP
-                                )
-                            }
-                        )
-                    } catch (e: Exception) {
-                        Log.e(TAG, "StartActivity failed", e)
-                        showDebug("❌ فشل فتح شاشة النتيجة!", true)
-                        delay(3000)
-                    }
-                }
+        
+if (text.isBlank()) {
+    showDebug("❌ لم يتم العثور على نص — راجع Logcat", true)
+    delay(3000)
+} else if (text.startsWith("خطأ")) {
+    // ✅ عرض رسالة الخطأ بدلاً من افتراض عدم وجود نص
+    showDebug("❌ $text", true)
+    delay(5000)
+} else {
+    // ✅ النص المستخرج
+    showDebug("✓ تم! ${text.length} حرف", false)
+    delay(500)
+    try {
+        startActivity(
+            Intent(this@FloatingWindowService, TextResultActivity::class.java).apply {
+                putExtra("extracted_text", text)
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+                )
+            }
+        )
+    } catch (e: Exception) {
+        Log.e(TAG, "StartActivity failed", e)
+        showDebug("❌ فشل فتح شاشة النتيجة!", true)
+        delay(3000)
+    }
+}
 
             } catch (e: Exception) {
                 Log.e(TAG, "Unexpected error", e)
