@@ -78,20 +78,16 @@ class FloatingWindowService : Service() {
         if (code != 0 && data != null) {
             captureManager = ScreenCaptureManager(this, code, data)
             captureManager?.onProjectionStopped = {
-                Log.w(TAG, "Projection stopped!")
                 scope.launch { showDebug("تم إلغاء إذن الشاشة", true) }
             }
             captureManager?.initialize()
 
             scope.launch {
                 val ready = captureManager?.waitForFrames(5000) ?: false
-                Log.d(TAG, "Frames ready: $ready")
-                if (ready) {
-                    showFloatingButton()
-                } else {
-                    showDebug("فشل تهيئة الالتقاط — أعد المحاولة", true)
-                    delay(3000)
-                    stopSelf()
+                if (ready) showFloatingButton()
+                else {
+                    showDebug("فشل تهيئة الالتقاط", true)
+                    delay(3000); stopSelf()
                 }
             }
         } else {
@@ -102,7 +98,7 @@ class FloatingWindowService : Service() {
         return START_STICKY
     }
 
-    // ================ نافذة التشخيص ================
+    // ================ Debug ================
 
     private fun showDebug(msg: String, isError: Boolean = false) {
         Log.d(TAG, "DEBUG: $msg")
@@ -110,35 +106,24 @@ class FloatingWindowService : Service() {
             if (debugView == null) {
                 debugView = TextView(this).apply {
                     setBackgroundColor(0xDD000000.toInt())
-                    textSize = 14f
-                    setPadding(24, 16, 24, 16)
+                    textSize = 14f; setPadding(24, 16, 24, 16)
                 }
-                val params = WindowManager.LayoutParams(
+                val p = WindowManager.LayoutParams(
                     WindowManager.LayoutParams.MATCH_PARENT,
                     WindowManager.LayoutParams.WRAP_CONTENT,
                     WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                     PixelFormat.TRANSLUCENT
-                ).apply {
-                    gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-                    y = 300
-                }
-                windowManager.addView(debugView, params)
+                ).apply { gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL; y = 300 }
+                windowManager.addView(debugView, p)
             }
             debugView?.setTextColor(if (isError) 0xFFFF4444.toInt() else 0xFF44FF44.toInt())
-            debugView?.text = msg
-            debugView?.visibility = View.VISIBLE
-        } catch (e: Exception) {
-            Log.e(TAG, "Debug view error", e)
-        }
+            debugView?.text = msg; debugView?.visibility = View.VISIBLE
+        } catch (_: Exception) {}
     }
 
     private fun hideDebug() {
-        debugView?.let {
-            try {
-                windowManager.removeView(it)
-            } catch (_: Exception) {}
-        }
+        debugView?.let { try { windowManager.removeView(it) } catch (_: Exception) {} }
         debugView = null
     }
 
@@ -152,72 +137,50 @@ class FloatingWindowService : Service() {
             } else {
                 startForeground(NOTIFICATION_ID, n)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "startForeground error", e)
+        } catch (_: Exception) {
             startForeground(NOTIFICATION_ID, n)
         }
     }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val ch = NotificationChannel(CHANNEL_ID, "OCR Service", NotificationManager.IMPORTANCE_LOW)
+            val ch = NotificationChannel(CHANNEL_ID, "OCR", NotificationManager.IMPORTANCE_LOW)
             getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
         }
     }
 
     private fun buildNotification(): Notification {
-        val stopPI = PendingIntent.getService(
-            this, 0,
+        val stop = PendingIntent.getService(this, 0,
             Intent(this, FloatingWindowService::class.java).apply { action = ACTION_STOP },
-            PendingIntent.FLAG_IMMUTABLE
-        )
-        val openPI = PendingIntent.getActivity(
-            this, 0,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE
-        )
+            PendingIntent.FLAG_IMMUTABLE)
+        val open = PendingIntent.getActivity(this, 0,
+            Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("OCR Capture")
-            .setContentText("اضغط الزر العائم")
+            .setContentTitle("OCR Capture").setContentText("اضغط الزر العائم")
             .setSmallIcon(android.R.drawable.ic_menu_edit)
-            .setContentIntent(openPI)
-            .addAction(0, "إيقاف", stopPI)
-            .setOngoing(true)
-            .build()
+            .setContentIntent(open).addAction(0, "إيقاف", stop)
+            .setOngoing(true).build()
     }
 
     // ================ الزر العائم ================
 
     private fun showFloatingButton() {
         if (floatingBtn != null) return
-        val btn = createFloatingButtonView()
-        val params = WindowManager.LayoutParams(
+        val btn = createBtn()
+        val p = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = 24
-            y = 300
-        }
-        try {
-            windowManager.addView(btn, params)
-            floatingBtn = btn
-            Log.d(TAG, "Floating button shown")
-        } catch (e: Exception) {
-            Log.e(TAG, "Button failed", e)
-        }
+        ).apply { gravity = Gravity.TOP or Gravity.START; x = 24; y = 300 }
+        try { windowManager.addView(btn, p); floatingBtn = btn } catch (_: Exception) {}
     }
 
-    private fun createFloatingButtonView(): View {
-        val container = FrameLayout(this)
-        val circle = TextView(this).apply {
-            text = "T"
-            textSize = 22f
-            setTextColor(android.graphics.Color.WHITE)
+    private fun createBtn(): View {
+        val c = FrameLayout(this)
+        c.addView(TextView(this).apply {
+            text = "T"; textSize = 22f; setTextColor(android.graphics.Color.WHITE)
             gravity = Gravity.CENTER
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
@@ -225,174 +188,102 @@ class FloatingWindowService : Service() {
                 setStroke(3, android.graphics.Color.WHITE)
             }
             setPadding(28, 28, 28, 28)
-        }
-        container.addView(circle, FrameLayout.LayoutParams(dp(56), dp(56)))
+        }, FrameLayout.LayoutParams(dp(56), dp(56)))
 
-        var initX = 0
-        var initY = 0
-        var touchX = 0f
-        var touchY = 0f
-        var isClick = true
-
-        container.setOnTouchListener { _, ev ->
+        var ix = 0; var iy = 0; var tx = 0f; var ty = 0f; var click = true
+        c.setOnTouchListener { _, ev ->
             val lp = floatingBtn?.layoutParams as? WindowManager.LayoutParams
                 ?: return@setOnTouchListener false
             when (ev.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    initX = lp.x
-                    initY = lp.y
-                    touchX = ev.rawX
-                    touchY = ev.rawY
-                    isClick = true
-                    true
-                }
+                MotionEvent.ACTION_DOWN -> { ix = lp.x; iy = lp.y; tx = ev.rawX; ty = ev.rawY; click = true; true }
                 MotionEvent.ACTION_MOVE -> {
-                    if (kotlin.math.abs(ev.rawX - touchX) > 10 ||
-                        kotlin.math.abs(ev.rawY - touchY) > 10
-                    ) {
-                        isClick = false
-                    }
-                    lp.x = initX + (ev.rawX - touchX).toInt()
-                    lp.y = initY + (ev.rawY - touchY).toInt()
-                    try {
-                        windowManager.updateViewLayout(floatingBtn, lp)
-                    } catch (_: Exception) {}
+                    if (kotlin.math.abs(ev.rawX - tx) > 10 || kotlin.math.abs(ev.rawY - ty) > 10) click = false
+                    lp.x = ix + (ev.rawX - tx).toInt(); lp.y = iy + (ev.rawY - ty).toInt()
+                    try { windowManager.updateViewLayout(floatingBtn, lp) } catch (_: Exception) {}
                     true
                 }
-                MotionEvent.ACTION_UP -> {
-                    if (isClick) onFloatingClick()
-                    true
-                }
+                MotionEvent.ACTION_UP -> { if (click) { floatingBtn?.visibility = View.INVISIBLE; hideDebug(); showOverlay() }; true }
                 else -> false
             }
         }
-        return container
+        return c
     }
 
     // ================ أداة التحديد ================
 
-    private fun onFloatingClick() {
-        Log.d(TAG, "Button clicked")
-        floatingBtn?.visibility = View.INVISIBLE
-        hideDebug()
-        showOverlay()
-    }
-
     private fun showOverlay() {
         val ov = SelectionOverlayView(this).apply {
             onExtract = { rect -> onExtractRequested(rect) }
-            onCancel = {
-                dismissOverlay()
-                floatingBtn?.visibility = View.VISIBLE
-            }
+            onCancel = { dismissOverlay(); floatingBtn?.visibility = View.VISIBLE }
         }
-        val params = WindowManager.LayoutParams(
+        val p = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         )
-        try {
-            windowManager.addView(ov, params)
-            overlay = ov
-            Log.d(TAG, "Overlay shown")
-        } catch (e: Exception) {
-            Log.e(TAG, "Overlay failed", e)
-            floatingBtn?.visibility = View.VISIBLE
-        }
+        try { windowManager.addView(ov, p); overlay = ov }
+        catch (_: Exception) { floatingBtn?.visibility = View.VISIBLE }
     }
 
     private fun dismissOverlay() {
-        overlay?.let {
-            try {
-                windowManager.removeView(it)
-            } catch (_: Exception) {}
-        }
+        overlay?.let { try { windowManager.removeView(it) } catch (_: Exception) {} }
         overlay = null
     }
 
-    // ================ عملية الاستخراج ================
+    // ================ الاستخراج ================
 
     private fun onExtractRequested(rect: RectF) {
         scope.launch {
             try {
-                // 1) إخفاء أداة التحديد
                 showDebug("١/٥ — إخفاء أداة التحديد...")
                 dismissOverlay()
 
-                // 2) انتظار تحديث الشاشة
                 showDebug("٢/٥ — انتظار تحديث الشاشة...")
                 delay(1500)
 
-                // 3) التحقق من الجاهزية
                 if (captureManager?.isReady != true) {
                     showDebug("مدير الالتقاط غير جاهز!", true)
-                    delay(3000)
-                    floatingBtn?.visibility = View.VISIBLE
+                    delay(3000); floatingBtn?.visibility = View.VISIBLE
                     return@launch
                 }
 
-                // 4) التقاط الشاشة
                 showDebug("٣/٥ — التقاط الشاشة...")
-                val fullBitmap: Bitmap? = captureManager?.captureWithRetry(
-                    maxAttempts = 15,
-                    delayMs = 300
-                )
+                val full: Bitmap? = captureManager?.captureWithRetry(15, 300)
 
-                if (fullBitmap == null) {
+                if (full == null) {
                     showDebug("فشل التقاط الشاشة!", true)
-                    delay(3000)
-                    floatingBtn?.visibility = View.VISIBLE
+                    delay(3000); floatingBtn?.visibility = View.VISIBLE
                     return@launch
                 }
 
-                showDebug("✓ التقاط: ${fullBitmap.width}x${fullBitmap.height}")
+                showDebug("✓ التقاط: ${full.width}x${full.height}")
                 delay(200)
 
-                // 5) قص المنطقة
                 showDebug("٤/٥ — قص المنطقة...")
                 val cropped: Bitmap? = withContext(Dispatchers.Default) {
-                    captureManager?.cropBitmap(
-                        fullBitmap,
-                        rect.left.toInt(),
-                        rect.top.toInt(),
-                        rect.right.toInt(),
-                        rect.bottom.toInt()
-                    )
+                    captureManager?.cropBitmap(full,
+                        rect.left.toInt(), rect.top.toInt(),
+                        rect.right.toInt(), rect.bottom.toInt())
                 }
-                fullBitmap.recycle()
+                full.recycle()
 
                 if (cropped == null) {
                     showDebug("فشل قص المنطقة!", true)
-                    delay(3000)
-                    floatingBtn?.visibility = View.VISIBLE
+                    delay(3000); floatingBtn?.visibility = View.VISIBLE
                     return@launch
                 }
 
-                showDebug("✓ منطقة: ${cropped.width}x${cropped.height}")
-                delay(200)
-
-                // 6) OCR
                 showDebug("٥/٥ — استخراج النص...")
                 val text: String = withContext(Dispatchers.Default) {
-                    try {
-                        ocrProcessor.processImage(cropped)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "OCR error", e)
-                        ""
-                    }
+                    try { ocrProcessor.processImage(cropped) }
+                    catch (e: Exception) { Log.e(TAG, "OCR err", e); "" }
                 }
                 cropped.recycle()
 
-                // 7) عرض النتيجة
                 if (text.isBlank()) {
-                    val err = ocrProcessor.getInitError()
-                    if (err.isNotEmpty()) {
-                        showDebug("OCR: $err", true)
-                    } else {
-                        showDebug("لم يتم العثور على نص — جرّب منطقة أكبر", true)
-                    }
+                    showDebug("لم يتم العثور على نص — جرّب منطقة أكبر", true)
                     delay(5000)
                 } else {
                     showDebug("✓ تم! ${text.length} حرف")
@@ -401,21 +292,18 @@ class FloatingWindowService : Service() {
                         startActivity(
                             Intent(this@FloatingWindowService, TextResultActivity::class.java).apply {
                                 putExtra("extracted_text", text)
-                                addFlags(
-                                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                                            Intent.FLAG_ACTIVITY_SINGLE_TOP
-                                )
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or
+                                        Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                             }
                         )
                     } catch (e: Exception) {
                         Log.e(TAG, "StartActivity failed", e)
-                        showDebug("فشل فتح شاشة النتيجة!", true)
+                        showDebug("فشل فتح النتيجة!", true)
                         delay(3000)
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Unexpected error", e)
+                Log.e(TAG, "Unexpected", e)
                 showDebug("خطأ: ${e.message}", true)
                 delay(3000)
             } finally {
@@ -425,28 +313,16 @@ class FloatingWindowService : Service() {
         }
     }
 
-    // ================ التنظيف ================
+    // ================ Cleanup ================
 
     override fun onDestroy() {
-        Log.d(TAG, "Service destroyed")
         super.onDestroy()
-        scope.cancel()
-        hideDebug()
-        floatingBtn?.let {
-            try {
-                windowManager.removeView(it)
-            } catch (_: Exception) {}
-        }
-        overlay?.let {
-            try {
-                windowManager.removeView(it)
-            } catch (_: Exception) {}
-        }
-        captureManager?.release()
-        ocrProcessor.close()
-        floatingBtn = null
-        overlay = null
+        scope.cancel(); hideDebug()
+        floatingBtn?.let { try { windowManager.removeView(it) } catch (_: Exception) {} }
+        overlay?.let { try { windowManager.removeView(it) } catch (_: Exception) {} }
+        captureManager?.release(); ocrProcessor.close()
+        floatingBtn = null; overlay = null
     }
 
-    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 }
