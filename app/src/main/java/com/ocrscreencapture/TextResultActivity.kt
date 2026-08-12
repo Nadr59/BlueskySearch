@@ -473,4 +473,8 @@ fun AiButton(
             disabledContentColor = Color(0xFF666666)
         )
     ) {
-        Icon(icon, null, Mo
+        Icon(icon, null, Modifier.size(18.dp))
+        Spacer(Modifier.width(4.dp))
+        Text(text, fontSize = 13.sp)
+    }
+}
