@@ -20,6 +20,7 @@ class OcrProcessor(private val context: Context) {
 
     private var tessApi: TessBaseAPI? = null
     private var isInitialized = false
+    private var initError: String = ""
 
     suspend fun processImage(bitmap: Bitmap): String = withContext(Dispatchers.Default) {
         try {
@@ -29,51 +30,42 @@ class OcrProcessor(private val context: Context) {
 
             val api = tessApi
             if (api == null || !isInitialized) {
-                Log.e(TAG, "Tesseract NOT initialized!")
+                Log.e(TAG, "NOT INITIALIZED! Error: $initError")
                 return@withContext ""
             }
 
             Log.d(TAG, "Processing: ${bitmap.width}x${bitmap.height}")
 
-            // تأكد من الصيغة
-            val safeBitmap = ensureArgb8888(bitmap)
+            val safe = ensureArgb8888(bitmap)
+            val enhanced = lightEnhance(safe)
 
-            // تحسين خفيف
-            val enhanced = lightEnhance(safeBitmap)
-
-            // ✅ التعرف
             api.setImage(enhanced)
             val result = api.utF8Text ?: ""
             api.clear()
 
-            // تنظيف الذاكرة
-            if (enhanced !== safeBitmap && enhanced !== bitmap && !enhanced.isRecycled) {
-                enhanced.recycle()
-            }
-            if (safeBitmap !== bitmap && !safeBitmap.isRecycled) {
-                safeBitmap.recycle()
-            }
+            if (enhanced !== safe && enhanced !== bitmap && !enhanced.isRecycled) enhanced.recycle()
+            if (safe !== bitmap && !safe.isRecycled) safe.recycle()
 
             val trimmed = result.trim()
-            Log.d(TAG, "Result: ${trimmed.length} chars")
+            Log.d(TAG, "Result: ${trimmed.length} chars = '${trimmed.take(100)}'")
             trimmed
 
         } catch (e: Exception) {
-            Log.e(TAG, "OCR error", e)
+            Log.e(TAG, "OCR exception", e)
             ""
         }
     }
 
     private fun initTesseract() {
         try {
-            Log.d(TAG, "=== Initializing Tesseract ===")
+            Log.d(TAG, "=== INIT TESSERACT ===")
 
             val dataPath = context.filesDir.absolutePath
             val tessDir = File(dataPath, "tessdata")
 
-            // نسخ البيانات
+            // نسخ من Assets
             if (!tessDir.exists() || !File(tessDir, "ara.traineddata").exists()) {
-                Log.d(TAG, "Copying trained data...")
+                Log.d(TAG, "Copying from assets...")
                 tessDir.mkdirs()
                 copyAsset("tessdata/ara.traineddata", File(tessDir, "ara.traineddata"))
                 copyAsset("tessdata/eng.traineddata", File(tessDir, "eng.traineddata"))
@@ -82,49 +74,77 @@ class OcrProcessor(private val context: Context) {
             val araFile = File(tessDir, "ara.traineddata")
             val engFile = File(tessDir, "eng.traineddata")
 
-            Log.d(TAG, "ara exists=${araFile.exists()} size=${araFile.length()}")
-            Log.d(TAG, "eng exists=${engFile.exists()} size=${engFile.length()}")
+            Log.d(TAG, "ara: exists=${araFile.exists()} size=${araFile.length()}")
+            Log.d(TAG, "eng: exists=${engFile.exists()} size=${engFile.length()}")
 
-            if (!araFile.exists() || araFile.length() < 1000) {
-                Log.e(TAG, "Arabic data missing or too small!")
+            // التحقق من صحة الملفات
+            if (!araFile.exists() || araFile.length() < 10000) {
+                initError = "ملف ara.traineddata غير موجود أو صغير جداً (${araFile.length()} bytes)"
+                Log.e(TAG, initError)
+                return
+            }
+            if (!engFile.exists() || engFile.length() < 10000) {
+                initError = "ملف eng.traineddata غير موجود أو صغير جداً (${engFile.length()} bytes)"
+                Log.e(TAG, initError)
                 return
             }
 
-            // ✅ تهيئة
+            // التحقق من أن الملف ليس HTML
+            try {
+                val firstBytes = ByteArray(20)
+                araFile.inputStream().use { it.read(firstBytes) }
+                val header = String(firstBytes).take(10)
+                Log.d(TAG, "ara header bytes: $header")
+                if (header.contains("<!DOCTYPE") || header.contains("<html")) {
+                    initError = "ara.traineddata هو صفحة HTML وليس ملف نموذج!"
+                    Log.e(TAG, initError)
+                    return
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not read header", e)
+            }
+
+            // تهيئة Tesseract
+            Log.d(TAG, "Creating TessBaseAPI...")
             tessApi = TessBaseAPI()
-            val success = tessApi!!.init(dataPath, "ara+eng")
+
+            Log.d(TAG, "Calling init(dataPath, 'ara+eng')...")
+            Log.d(TAG, "dataPath = $dataPath")
+
+            val success = try {
+                tessApi!!.init(dataPath, "ara+eng")
+            } catch (e: Exception) {
+                Log.e(TAG, "init() threw exception!", e)
+                false
+            }
+
+            Log.d(TAG, "init() returned: $success")
 
             if (success) {
                 tessApi!!.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
                 isInitialized = true
-                Log.d(TAG, "Tesseract READY! lang=ara+eng")
+                Log.d(TAG, "READY with ara+eng!")
             } else {
-                Log.e(TAG, "init(ara+eng) FAILED, trying ara only...")
-                tessApi!!.close()
+                Log.w(TAG, "ara+eng FAILED, trying eng only...")
+                try { tessApi!!.close() } catch (_: Exception) {}
                 tessApi = TessBaseAPI()
-                val s2 = tessApi!!.init(dataPath, "ara")
+                val s2 = try { tessApi!!.init(dataPath, "eng") } catch (e: Exception) { false }
+                Log.d(TAG, "init(eng) = $s2")
+
                 if (s2) {
                     tessApi!!.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
                     isInitialized = true
-                    Log.d(TAG, "Tesseract READY! lang=ara")
+                    Log.d(TAG, "READY with eng!")
                 } else {
-                    Log.e(TAG, "init(ara) FAILED, trying eng only...")
-                    tessApi!!.close()
-                    tessApi = TessBaseAPI()
-                    val s3 = tessApi!!.init(dataPath, "eng")
-                    if (s3) {
-                        tessApi!!.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
-                        isInitialized = true
-                        Log.d(TAG, "Tesseract READY! lang=eng")
-                    } else {
-                        Log.e(TAG, "ALL init attempts FAILED!")
-                        tessApi?.close()
-                        tessApi = null
-                    }
+                    initError = "init() فشل مع eng أيضاً"
+                    Log.e(TAG, initError)
+                    try { tessApi!!.close() } catch (_: Exception) {}
+                    tessApi = null
                 }
             }
 
         } catch (e: Exception) {
+            initError = "استثناء: ${e.message}"
             Log.e(TAG, "Init exception!", e)
             tessApi = null
         }
@@ -135,7 +155,7 @@ class OcrProcessor(private val context: Context) {
             context.assets.open(assetPath).use { input ->
                 destFile.outputStream().use { output ->
                     val bytes = input.copyTo(output)
-                    Log.d(TAG, "Copied $assetPath (${bytes} bytes)")
+                    Log.d(TAG, "Copied $assetPath → ${destFile.name} ($bytes bytes)")
                 }
             }
         } catch (e: Exception) {
@@ -152,18 +172,18 @@ class OcrProcessor(private val context: Context) {
         return try {
             val result = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
             Canvas(result).drawBitmap(bitmap, 0f, 0f, Paint().apply {
-                colorFilter = ColorMatrixColorFilter(
-                    ColorMatrix(floatArrayOf(
-                        1.2f, 0f, 0f, 0f, -10f,
-                        0f, 1.2f, 0f, 0f, -10f,
-                        0f, 0f, 1.2f, 0f, -10f,
-                        0f, 0f, 0f, 1f, 0f
-                    ))
-                )
+                colorFilter = ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
+                    1.2f, 0f, 0f, 0f, -10f,
+                    0f, 1.2f, 0f, 0f, -10f,
+                    0f, 0f, 1.2f, 0f, -10f,
+                    0f, 0f, 0f, 1f, 0f
+                )))
             })
             result
         } catch (_: Exception) { bitmap }
     }
+
+    fun getInitError(): String = initError
 
     fun close() {
         try { tessApi?.close() } catch (_: Exception) {}
