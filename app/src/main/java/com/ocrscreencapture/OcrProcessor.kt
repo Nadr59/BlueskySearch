@@ -14,15 +14,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
+import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 import kotlin.coroutines.resume
 
-/**
- * محرك OCR مزدوج:
- * - ML Kit: مجاني، بدون إنترنت، للإنجليزي
- * - OCR.space: مجاني، يدعم العربي + الإنجليزي
- */
 class OcrProcessor(private val context: Context) {
 
     companion object {
@@ -37,6 +34,19 @@ class OcrProcessor(private val context: Context) {
 
     private val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
 
+    // ✅ سجل التشخيص المرئي
+    var debugLog = StringBuilder()
+        private set
+
+    private fun log(msg: String) {
+        Log.d(TAG, msg)
+        debugLog.appendLine(msg)
+    }
+
+    fun clearDebugLog() {
+        debugLog.clear()
+    }
+
     // ═══════════════ API Key ═══════════════
 
     fun getApiKey(): String = prefs.getString(KEY_API_KEY, "") ?: ""
@@ -45,44 +55,55 @@ class OcrProcessor(private val context: Context) {
         prefs.edit().putString(KEY_API_KEY, key).apply()
     }
 
-    fun hasApiKey(): Boolean = getApiKey().isNotBlank()
+    fun hasApiKey(): Boolean {
+        val key = getApiKey()
+        log("API Key: '${key.take(8)}...' (length=${key.length})")
+        return key.isNotBlank()
+    }
 
     fun isOnline(): Boolean {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val net = cm.activeNetwork ?: return false
         val caps = cm.getNetworkCapabilities(net) ?: return false
-        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        val online = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        log("Online: $online")
+        return online
     }
 
     // ═══════════════ المعالجة الرئيسية ═══════════════
 
     suspend fun processImage(bitmap: Bitmap): String = withContext(Dispatchers.Default) {
+        debugLog.clear()
         try {
-            Log.d(TAG, "═══ Processing ═══")
-            Log.d(TAG, "Input: ${bitmap.width}x${bitmap.height}")
-            Log.d(TAG, "API Key: ${if (hasApiKey()) "yes" else "no"}")
-            Log.d(TAG, "Online: ${isOnline()}")
+            log("═══ بدء المعالجة ═══")
+            log("الأبعاد: ${bitmap.width}x${bitmap.height}")
 
-            val result = if (hasApiKey() && isOnline()) {
-                Log.d(TAG, "→ Using OCR.space (Arabic + English)")
+            val keyExists = hasApiKey()
+            val online = isOnline()
+
+            val result = if (keyExists && online) {
+                log("→ استخدام OCR.space (عربي + إنجليزي)")
                 val r = ocrSpaceRecognize(bitmap)
                 if (r.isBlank()) {
-                    Log.w(TAG, "OCR.space empty, falling back to ML Kit")
+                    log("← OCR.space فارغ — استخدام ML Kit")
                     mlKitRecognize(bitmap)
                 } else {
                     r
                 }
             } else {
-                Log.d(TAG, "→ Using ML Kit (English only)")
+                if (!keyExists) log("← لا يوجد API Key — ML Kit فقط")
+                if (!online) log("← لا يوجد إنترنت — ML Kit فقط")
+                log("→ استخدام ML Kit (إنجليزي فقط)")
                 mlKitRecognize(bitmap)
             }
 
             val trimmed = result.trim()
-            Log.d(TAG, "═══ Result: ${trimmed.length} chars ═══")
-            Log.d(TAG, "'${trimmed.take(200)}'")
+            log("═══ النتيجة: ${trimmed.length} حرف ═══")
+            log("'${trimmed.take(100)}'")
             trimmed
 
         } catch (e: Exception) {
+            log("❌ خطأ: ${e.message}")
             Log.e(TAG, "OCR error", e)
             ""
         }
@@ -92,86 +113,86 @@ class OcrProcessor(private val context: Context) {
 
     private suspend fun mlKitRecognize(bitmap: Bitmap): String {
         return try {
+            log("ML Kit: معالجة...")
             val image = InputImage.fromBitmap(bitmap, 0)
-            suspendCancellableCoroutine { cont ->
+            val text = suspendCancellableCoroutine { cont ->
                 mlKitRecognizer.process(image)
-                    .addOnSuccessListener { text ->
-                        if (cont.isActive) cont.resume(text.text ?: "")
+                    .addOnSuccessListener { t ->
+                        if (cont.isActive) cont.resume(t.text ?: "")
                     }
                     .addOnFailureListener { e ->
                         Log.e(TAG, "ML Kit fail", e)
                         if (cont.isActive) cont.resume("")
                     }
             }
+            log("ML Kit: ${text.length} حرف")
+            text
         } catch (e: Exception) {
-            Log.e(TAG, "ML Kit error", e)
+            log("ML Kit خطأ: ${e.message}")
             ""
         }
     }
 
-    // ═══════════════ OCR.space API (عربي + إنجليزي) ═══════════════
+    // ═══════════════ OCR.space API ═══════════════
 
     private suspend fun ocrSpaceRecognize(bitmap: Bitmap): String =
         withContext(Dispatchers.IO) {
             try {
-                Log.d(TAG, "Calling OCR.space API...")
-
+                log("OCR.space: تحويل الصورة...")
                 val stream = ByteArrayOutputStream()
                 bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream)
-                val base64 = Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
-                Log.d(TAG, "Base64 length: ${base64.length}")
+                val imageBytes = stream.toByteArray()
+                val base64 = Base64.encodeToString(imageBytes, Base64.NO_WRAP)
+                log("OCR.space: حجم base64 = ${base64.length}")
 
-                val boundary = "----WebKitFormBoundary" + System.currentTimeMillis()
-                val body = buildString {
-                    append("--$boundary\r\n")
-                    append("Content-Disposition: form-data; name=\"base64Image\"\r\n\r\n")
-                    append("data:image/jpeg;base64,$base64\r\n")
-
-                    append("--$boundary\r\n")
-                    append("Content-Disposition: form-data; name=\"language\"\r\n\r\n")
-                    append("ara\r\n")
-
-                    append("--$boundary\r\n")
-                    append("Content-Disposition: form-data; name=\"OCREngine\"\r\n\r\n")
-                    append("2\r\n")
-
-                    append("--$boundary\r\n")
-                    append("Content-Disposition: form-data; name=\"isOverlayRequired\"\r\n\r\n")
-                    append("false\r\n")
-
-                    append("--$boundary--\r\n")
+                // ✅ استخدام URL-encoded form data (أبسط وأكثر موثوقية)
+                val postData = buildString {
+                    append("base64Image=")
+                    append(URLEncoder.encode("data:image/jpeg;base64,$base64", "UTF-8"))
+                    append("&language=ara")
+                    append("&OCREngine=2")
+                    append("&isOverlayRequired=false")
+                    append("&scale=true")
+                    append("&detectOrientation=true")
                 }
+                log("OCR.space: حجم الطلب = ${postData.length}")
 
                 val apiKey = getApiKey()
+                log("OCR.space: إرسال الطلب...")
+
                 val url = URL(OCR_SPACE_URL)
                 val conn = url.openConnection() as HttpURLConnection
 
                 conn.apply {
                     requestMethod = "POST"
-                    setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+                    setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
                     setRequestProperty("apikey", apiKey)
                     doOutput = true
                     connectTimeout = 30000
-                    readTimeout = 30000
+                    readTimeout = 60000
                 }
 
-                conn.outputStream.use { os ->
-                    os.write(body.toByteArray(Charsets.UTF_8))
+                OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { writer ->
+                    writer.write(postData)
+                    writer.flush()
                 }
 
                 val code = conn.responseCode
-                Log.d(TAG, "OCR.space response: $code")
+                log("OCR.space: رد الخادم = $code")
 
                 if (code == 200) {
                     val response = conn.inputStream.bufferedReader().readText()
-                    Log.d(TAG, "Response: ${response.take(500)}")
+                    log("OCR.space: طول الرد = ${response.length}")
+                    log("OCR.space: الرد = ${response.take(300)}")
                     parseOcrSpaceResponse(response)
                 } else {
                     val err = conn.errorStream?.bufferedReader()?.readText() ?: ""
-                    Log.e(TAG, "OCR.space error $code: $err")
+                    log("❌ OCR.space خطأ $code")
+                    log("❌ ${err.take(200)}")
                     ""
                 }
             } catch (e: Exception) {
+                log("❌ OCR.space استثناء: ${e.message}")
                 Log.e(TAG, "OCR.space error", e)
                 ""
             }
@@ -180,23 +201,41 @@ class OcrProcessor(private val context: Context) {
     private fun parseOcrSpaceResponse(response: String): String {
         return try {
             val json = org.json.JSONObject(response)
+            log("Parse: keys=${json.keys().asSequence().toList()}")
+
+            if (json.has("IsErroredOnProcessing")) {
+                val errored = json.getBoolean("IsErroredOnProcessing")
+                if (errored) {
+                    val errMsg = if (json.has("ErrorMessage")) {
+                        json.getString("ErrorMessage")
+                    } else {
+                        "Unknown error"
+                    }
+                    log("❌ OCR.space معالجة فاشلة: $errMsg")
+                    return ""
+                }
+            }
 
             if (json.has("ParsedResults")) {
                 val results = json.getJSONArray("ParsedResults")
+                log("Parse: ${results.length} نتيجة")
                 if (results.length() > 0) {
                     val first = results.getJSONObject(0)
                     if (first.has("ParsedText")) {
-                        return first.getString("ParsedText")
+                        val text = first.getString("ParsedText")
+                        log("Parse: نص = ${text.take(100)}")
+                        return text
+                    }
+                    if (first.has("ErrorMessage")) {
+                        log("❌ خطأ نتيجة: ${first.getString("ErrorMessage")}")
                     }
                 }
             }
 
-            if (json.has("ErrorMessage")) {
-                Log.e(TAG, "OCR.space error: ${json.getString("ErrorMessage")}")
-            }
-
+            log("❌ لا يوجد ParsedResults")
             ""
         } catch (e: Exception) {
+            log("❌ خطأ تحليل JSON: ${e.message}")
             Log.e(TAG, "Parse error", e)
             ""
         }
