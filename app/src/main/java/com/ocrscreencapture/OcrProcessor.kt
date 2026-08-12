@@ -24,11 +24,6 @@ import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.coroutines.resume
 
-/**
- * محرك OCR مزدوج:
- * - ML Kit: سريع، بدون إنترنت، للإنجليزي
- * - Google Cloud Vision API: دقيق، يدعم العربي + الإنجليزي + كل اللغات
- */
 class OcrProcessor(private val context: Context) {
 
     companion object {
@@ -67,35 +62,32 @@ class OcrProcessor(private val context: Context) {
         try {
             Log.d(TAG, "═══ Processing ═══")
             Log.d(TAG, "Input: ${bitmap.width}x${bitmap.height}")
-            Log.d(TAG, "API Key: ${if (hasApiKey()) "موجود" else "غير موجود"}")
+            Log.d(TAG, "API Key: ${if (hasApiKey()) "yes" else "no"}")
             Log.d(TAG, "Online: ${isOnline()}")
 
             val safe = ensureArgb8888(bitmap)
             val scaled = scaleForOcr(safe)
 
-            val result: String
-
-            if (hasApiKey() && isOnline()) {
-                // ✅ Cloud Vision API — يدعم العربي + الإنجليزي
+            val result: String = if (hasApiKey() && isOnline()) {
                 Log.d(TAG, "Using Cloud Vision API")
-                result = tryCloudVision(scaled)
-                if (result.isBlank()) {
+                val cloudResult = cloudVisionRecognize(scaled)
+                if (cloudResult.isNotBlank()) {
+                    cloudResult
+                } else {
                     Log.w(TAG, "Cloud Vision empty, falling back to ML Kit")
-                    result.tryMlKit(scaled)
+                    mlKitRecognize(scaled)
                 }
             } else {
-                // ✅ ML Kit — للإنجليزي فقط
-                Log.d(TAG, "Using ML Kit (offline/no API key)")
-                result = tryMlKit(scaled)
+                Log.d(TAG, "Using ML Kit (offline or no API key)")
+                mlKitRecognize(scaled)
             }
 
             if (scaled !== safe && scaled !== bitmap && !scaled.isRecycled) scaled.recycle()
             if (safe !== bitmap && !safe.isRecycled) safe.recycle()
 
             val trimmed = result.trim()
-            Log.d(TAG, "═══ Result ═══")
-            Log.d(TAG, "Length: ${trimmed.length}")
-            Log.d(TAG, "Text: '${trimmed.take(200)}'")
+            Log.d(TAG, "═══ Result: ${trimmed.length} chars ═══")
+            Log.d(TAG, "'${trimmed.take(200)}'")
             trimmed
 
         } catch (e: Exception) {
@@ -104,93 +96,82 @@ class OcrProcessor(private val context: Context) {
         }
     }
 
-    // ═══════════════ ML Kit (إنجليزي) ═══════════════
+    // ═══════════════ ML Kit ═══════════════
 
-    private suspend fun tryMlKit(bitmap: Bitmap): String {
+    private suspend fun mlKitRecognize(bitmap: Bitmap): String {
         return try {
             val image = InputImage.fromBitmap(bitmap, 0)
-            recognizeMlKit(image)
+            suspendCancellableCoroutine { cont ->
+                mlKitRecognizer.process(image)
+                    .addOnSuccessListener { text ->
+                        if (cont.isActive) cont.resume(text.text)
+                    }
+                    .addOnFailureListener { e ->
+                        Log.e(TAG, "ML Kit fail", e)
+                        if (cont.isActive) cont.resume("")
+                    }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "ML Kit error", e)
             ""
         }
     }
 
-    private suspend fun recognizeMlKit(image: InputImage): String =
-        suspendCancellableCoroutine { cont ->
-            mlKitRecognizer.process(image)
-                .addOnSuccessListener { text ->
-                    if (cont.isActive) cont.resume(text.text)
-                }
-                .addOnFailureListener { e ->
-                    Log.e(TAG, "ML Kit fail", e)
-                    if (cont.isActive) cont.resume("")
-                }
-        }
+    // ═══════════════ Cloud Vision API ═══════════════
 
-    // ═══════════════ Cloud Vision API (عربي + إنجليزي) ═══════════════
+    private suspend fun cloudVisionRecognize(bitmap: Bitmap): String =
+        withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Calling Cloud Vision API...")
 
-    private suspend fun tryCloudVision(bitmap: Bitmap): String = withContext(Dispatchers.IO) {
-        try {
-            Log.d(TAG, "Calling Cloud Vision API...")
+                val stream = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+                val base64 = Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
+                Log.d(TAG, "Base64 length: ${base64.length}")
 
-            // تحويل الصورة إلى base64
-            val stream = ByteArrayOutputStream()
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream)
-            val base64Image = Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
-            Log.d(TAG, "Image base64 length: ${base64Image.length}")
-
-            // بناء الطلب
-            val requestJson = JSONObject().apply {
-                put("requests", JSONArray().apply {
-                    put(JSONObject().apply {
-                        put("image", JSONObject().apply {
-                            put("content", base64Image)
-                        })
-                        put("features", JSONArray().apply {
-                            put(JSONObject().apply {
-                                put("type", "TEXT_DETECTION")
-                                put("maxResults", 1)
+                val request = JSONObject().apply {
+                    put("requests", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("image", JSONObject().apply {
+                                put("content", base64)
+                            })
+                            put("features", JSONArray().apply {
+                                put(JSONObject().apply {
+                                    put("type", "TEXT_DETECTION")
+                                    put("maxResults", 1)
+                                })
                             })
                         })
                     })
-                })
-            }
+                }
 
-            // إرسال الطلب
-            val apiKey = getApiKey()
-            val url = URL("$VISION_API_URL?key=$apiKey")
-            val conn = url.openConnection() as HttpURLConnection
+                val apiKey = getApiKey()
+                val url = URL("$VISION_API_URL?key=$apiKey")
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.doOutput = true
+                conn.connectTimeout = 15000
+                conn.readTimeout = 15000
 
-            conn.apply {
-                requestMethod = "POST"
-                setRequestProperty("Content-Type", "application/json")
-                doOutput = true
-                connectTimeout = 15000
-                readTimeout = 15000
-            }
+                conn.outputStream.use { it.write(request.toString().toByteArray()) }
 
-            conn.outputStream.use { os ->
-                os.write(requestJson.toString().toByteArray())
-            }
+                val code = conn.responseCode
+                Log.d(TAG, "Response: $code")
 
-            val responseCode = conn.responseCode
-            Log.d(TAG, "Vision API response: $responseCode")
-
-            if (responseCode == 200) {
-                val response = conn.inputStream.bufferedReader().readText()
-                parseVisionResponse(response)
-            } else {
-                val error = conn.errorStream?.bufferedReader()?.readText() ?: "Unknown error"
-                Log.e(TAG, "Vision API error $responseCode: $error")
+                if (code == 200) {
+                    val body = conn.inputStream.bufferedReader().readText()
+                    parseVisionResponse(body)
+                } else {
+                    val err = conn.errorStream?.bufferedReader()?.readText() ?: ""
+                    Log.e(TAG, "Error $code: $err")
+                    ""
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Cloud Vision error", e)
                 ""
             }
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Cloud Vision error", e)
-            ""
         }
-    }
 
     private fun parseVisionResponse(response: String): String {
         return try {
@@ -198,22 +179,17 @@ class OcrProcessor(private val context: Context) {
             val responses = json.getJSONArray("responses")
             if (responses.length() == 0) return ""
 
-            val firstResponse = responses.getJSONObject(0)
+            val first = responses.getJSONObject(0)
 
-            // محاولة 1: fullTextAnnotation (الأفضل)
-            if (firstResponse.has("fullTextAnnotation")) {
-                val fullText = firstResponse.getJSONObject("fullTextAnnotation")
-                return fullText.getString("text")
+            if (first.has("fullTextAnnotation")) {
+                return first.getJSONObject("fullTextAnnotation").getString("text")
             }
-
-            // محاولة 2: textAnnotations
-            if (firstResponse.has("textAnnotations")) {
-                val annotations = firstResponse.getJSONArray("textAnnotations")
-                if (annotations.length() > 0) {
-                    return annotations.getJSONObject(0).getString("description")
+            if (first.has("textAnnotations")) {
+                val ann = first.getJSONArray("textAnnotations")
+                if (ann.length() > 0) {
+                    return ann.getJSONObject(0).getString("description")
                 }
             }
-
             ""
         } catch (e: Exception) {
             Log.e(TAG, "Parse error", e)
@@ -223,20 +199,15 @@ class OcrProcessor(private val context: Context) {
 
     // ═══════════════ مساعدات ═══════════════
 
-    private fun ensureArgb8888(bitmap: Bitmap): Bitmap {
-        if (bitmap.config == Bitmap.Config.ARGB_8888) return bitmap
-        return bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: bitmap
+    private fun ensureArgb8888(b: Bitmap): Bitmap {
+        if (b.config == Bitmap.Config.ARGB_8888) return b
+        return b.copy(Bitmap.Config.ARGB_8888, false) ?: b
     }
 
-    private fun scaleForOcr(bitmap: Bitmap, maxDim: Int = 1600): Bitmap {
-        if (bitmap.width <= maxDim && bitmap.height <= maxDim) return bitmap
-        val ratio = minOf(maxDim.toFloat() / bitmap.width, maxDim.toFloat() / bitmap.height)
-        return Bitmap.createScaledBitmap(
-            bitmap,
-            (bitmap.width * ratio).toInt(),
-            (bitmap.height * ratio).toInt(),
-            true
-        )
+    private fun scaleForOcr(b: Bitmap, max: Int = 1600): Bitmap {
+        if (b.width <= max && b.height <= max) return b
+        val r = minOf(max.toFloat() / b.width, max.toFloat() / b.height)
+        return Bitmap.createScaledBitmap(b, (b.width * r).toInt(), (b.height * r).toInt(), true)
     }
 
     fun close() {
