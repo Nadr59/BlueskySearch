@@ -24,16 +24,17 @@ jobs:
         with:
           gradle-version: '8.5'
 
-      # ✅ تحميل بيانات LSTM المتوافقة مع Tesseract 4+
-      - name: Download Tesseract trained data
+      - name: Download Tesseract trained data (LSTM)
         run: |
           mkdir -p app/src/main/assets/tessdata
           curl -L -o app/src/main/assets/tessdata/ara.traineddata \
             "https://github.com/tesseract-ocr/tessdata_fast/raw/main/ara.traineddata"
           curl -L -o app/src/main/assets/tessdata/eng.traineddata \
             "https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata"
-          echo "=== File sizes ==="
+          echo "=== Sizes ==="
           ls -lh app/src/main/assets/tessdata/
+          echo "=== Hashes ==="
+          md5sum app/src/main/assets/tessdata/*
 
       - name: Clean Build
         run: gradle clean assembleDebug --no-daemon
