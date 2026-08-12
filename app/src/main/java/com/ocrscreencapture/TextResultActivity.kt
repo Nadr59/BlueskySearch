@@ -52,12 +52,12 @@ fun TextResultScreen(text: String, onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
     val ai = remember { AiAssistant(ctx) }
 
-    // ═══════════════ حالة المساعد الذكي ═══════════════
+    // حالة AI
     var aiResponse by remember { mutableStateOf("") }
     var aiLoading by remember { mutableStateOf(false) }
     var aiAction by remember { mutableStateOf("") }
     var showAiSection by remember { mutableStateOf(false) }
-    var showGeminiKeyDialog by remember { mutableStateOf(false) }
+    var showSettingsDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -105,7 +105,6 @@ fun TextResultScreen(text: String, onClose: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // نسخ
                 Button(
                     onClick = {
                         (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
@@ -121,18 +120,14 @@ fun TextResultScreen(text: String, onClose: () -> Unit) {
                     Text("نسخ")
                 }
 
-                // مشاركة
                 Button(
                     onClick = {
-                        ctx.startActivity(
-                            Intent.createChooser(
-                                Intent(Intent.ACTION_SEND).apply {
-                                    type = "text/plain"
-                                    putExtra(Intent.EXTRA_TEXT, edited)
-                                },
-                                "مشاركة"
-                            )
-                        )
+                        ctx.startActivity(Intent.createChooser(
+                            Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, edited)
+                            }, "مشاركة"
+                        ))
                     },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(12.dp),
@@ -143,7 +138,6 @@ fun TextResultScreen(text: String, onClose: () -> Unit) {
                     Text("مشاركة")
                 }
 
-                // حفظ
                 Button(
                     onClick = {
                         scope.launch {
@@ -173,16 +167,12 @@ fun TextResultScreen(text: String, onClose: () -> Unit) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = Color(0xFF1A1A2E)
-                )
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A2E))
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    // العنوان
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            Icons.Default.AutoAwesome,
-                            null,
+                            Icons.Default.AutoAwesome, null,
                             tint = Color(0xFFFFD700),
                             modifier = Modifier.size(24.dp)
                         )
@@ -193,12 +183,21 @@ fun TextResultScreen(text: String, onClose: () -> Unit) {
                             fontSize = 18.sp,
                             color = Color.White
                         )
+                        Spacer(Modifier.weight(1f))
+                        IconButton(onClick = { showSettingsDialog = true }) {
+                            Icon(
+                                Icons.Default.Settings, null,
+                                tint = Color(0xFF888888),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
 
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(8.dp))
 
-                    // حالة API Key
-                    if (!ai.hasApiKey()) {
+                    // المزود المتاح
+                    val available = ai.getAvailableProviders()
+                    if (available.isEmpty()) {
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(8.dp),
@@ -208,33 +207,40 @@ fun TextResultScreen(text: String, onClose: () -> Unit) {
                         ) {
                             Column(modifier = Modifier.padding(12.dp)) {
                                 Text(
-                                    "يتطلب Gemini API Key (مجاني)",
+                                    "لم يتم إعداد أي مزود AI",
                                     color = Color(0xFFEF9A9A),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp
                                 )
                                 Spacer(Modifier.height(4.dp))
                                 Text(
-                                    "احصل من: aistudio.google.com/app/apikey",
+                                    "اضغط ⚙️ لإضافة API Key من مزود واحد أو أكثر",
                                     color = Color(0xFF999999),
                                     fontSize = 11.sp
                                 )
                             }
                         }
-                        Spacer(Modifier.height(8.dp))
+                    } else {
+                        Text(
+                            "المزود: ${available.first().nameAr}" +
+                                    if (available.size > 1) " (+${available.size - 1} احتياطي)" else "",
+                            color = Color(0xFF81C784),
+                            fontSize = 12.sp
+                        )
                     }
+
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     // أزرار AI
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // شرح
                         AiButton(
                             text = "شرح",
                             icon = Icons.Default.Lightbulb,
                             color = Color(0xFFFFD700),
-                            enabled = !aiLoading && ai.hasApiKey(),
+                            enabled = !aiLoading && ai.hasAnyKey(),
                             modifier = Modifier.weight(1f)
                         ) {
                             aiAction = "شرح"
@@ -247,12 +253,11 @@ fun TextResultScreen(text: String, onClose: () -> Unit) {
                             }
                         }
 
-                        // ترجمة
                         AiButton(
                             text = "ترجمة",
                             icon = Icons.Default.Translate,
                             color = Color(0xFF00BCD4),
-                            enabled = !aiLoading && ai.hasApiKey(),
+                            enabled = !aiLoading && ai.hasAnyKey(),
                             modifier = Modifier.weight(1f)
                         ) {
                             aiAction = "ترجمة"
@@ -265,12 +270,11 @@ fun TextResultScreen(text: String, onClose: () -> Unit) {
                             }
                         }
 
-                        // توسع
                         AiButton(
                             text = "توسع",
                             icon = Icons.Default.Expand,
                             color = Color(0xFF9C27B0),
-                            enabled = !aiLoading && ai.hasApiKey(),
+                            enabled = !aiLoading && ai.hasAnyKey(),
                             modifier = Modifier.weight(1f)
                         ) {
                             aiAction = "توسع"
@@ -283,26 +287,10 @@ fun TextResultScreen(text: String, onClose: () -> Unit) {
                             }
                         }
                     }
-
-                    Spacer(Modifier.height(4.dp))
-
-                    // زر إعداد API Key
-                    TextButton(
-                        onClick = { showGeminiKeyDialog = true },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Key, null, Modifier.size(14.dp), tint = Color(0xFF888888))
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            if (ai.hasApiKey()) "تغيير Gemini API Key" else "إضافة Gemini API Key",
-                            color = Color(0xFF888888),
-                            fontSize = 12.sp
-                        )
-                    }
                 }
             }
 
-            // ═══════════════ قسم نتيجة AI ═══════════════
+            // ═══════════════ نتيجة AI ═══════════════
 
             AnimatedVisibility(
                 visible = showAiSection,
@@ -310,16 +298,12 @@ fun TextResultScreen(text: String, onClose: () -> Unit) {
             ) {
                 Column {
                     Spacer(modifier = Modifier.height(12.dp))
-
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = Color(0xFF16213E)
-                        )
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF16213E))
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
-                            // عنوان النتيجة
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     aiAction,
@@ -342,38 +326,31 @@ fun TextResultScreen(text: String, onClose: () -> Unit) {
                                         modifier = Modifier.size(32.dp)
                                     ) {
                                         Icon(
-                                            Icons.Default.ContentCopy,
-                                            null,
+                                            Icons.Default.ContentCopy, null,
                                             Modifier.size(16.dp),
                                             tint = Color(0xFF888888)
                                         )
                                     }
                                     IconButton(
                                         onClick = {
-                                            ctx.startActivity(
-                                                Intent.createChooser(
-                                                    Intent(Intent.ACTION_SEND).apply {
-                                                        type = "text/plain"
-                                                        putExtra(Intent.EXTRA_TEXT, aiResponse)
-                                                    },
-                                                    "مشاركة"
-                                                )
-                                            )
+                                            ctx.startActivity(Intent.createChooser(
+                                                Intent(Intent.ACTION_SEND).apply {
+                                                    type = "text/plain"
+                                                    putExtra(Intent.EXTRA_TEXT, aiResponse)
+                                                }, "مشاركة"
+                                            ))
                                         },
                                         modifier = Modifier.size(32.dp)
                                     ) {
                                         Icon(
-                                            Icons.Default.Share,
-                                            null,
+                                            Icons.Default.Share, null,
                                             Modifier.size(16.dp),
                                             tint = Color(0xFF888888)
                                         )
                                     }
                                 }
                             }
-
                             Spacer(Modifier.height(8.dp))
-
                             if (aiLoading) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     CircularProgressIndicator(
@@ -382,11 +359,7 @@ fun TextResultScreen(text: String, onClose: () -> Unit) {
                                         strokeWidth = 2.dp
                                     )
                                     Spacer(Modifier.width(12.dp))
-                                    Text(
-                                        "جاري التفكير...",
-                                        color = Color(0xFF888888),
-                                        fontSize = 14.sp
-                                    )
+                                    Text("جاري التفكير...", color = Color(0xFF888888))
                                 }
                             } else if (aiResponse.isNotBlank()) {
                                 Text(
@@ -405,52 +378,88 @@ fun TextResultScreen(text: String, onClose: () -> Unit) {
         }
     }
 
-    // ═══════════════ حوار Gemini API Key ═══════════════
+    // ═══════════════ حوار إعدادات المزودين ═══════════════
 
-    if (showGeminiKeyDialog) {
-        var tempKey by remember { mutableStateOf(ai.getApiKey()) }
+    if (showSettingsDialog) {
+        val tempKeys = remember {
+            ai.providers.associate { it.id to mutableStateOf(ai.getKey(it.id)) }
+        }
+
         AlertDialog(
-            onDismissRequest = { showGeminiKeyDialog = false },
-            title = { Text("Gemini API Key") },
+            onDismissRequest = { showSettingsDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Settings, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("إعدادات المساعد الذكي")
+                }
+            },
             text = {
-                Column {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState())
+                ) {
                     Text(
-                        "للاستخدام المجاني:\n\n" +
-                        "1. اذهب إلى:\n" +
-                        "   aistudio.google.com/app/apikey\n\n" +
-                        "2. سجل الدخول بحساب Google\n\n" +
-                        "3. اضغط Create API Key\n\n" +
-                        "4. انسخ المفتاح والصقه هنا\n\n" +
-                        "مجاني: 15 طلب/دقيقة",
+                        "أضف API Key من مزود واحد أو أكثر.\n" +
+                        "المزود الأول يُستخدم أولاً — إذا فشل ينتقل للتالي.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Spacer(Modifier.height(16.dp))
-                    OutlinedTextField(
-                        value = tempKey,
-                        onValueChange = { tempKey = it },
-                        label = { Text("Gemini API Key") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        shape = RoundedCornerShape(8.dp)
-                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    ai.providers.forEach { provider ->
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    provider.nameAr,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    provider.freeNote,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedTextField(
+                                    value = tempKeys[provider.id]?.value ?: "",
+                                    onValueChange = {
+                                        tempKeys[provider.id]?.value = it
+                                    },
+                                    label = { Text("${provider.name} API Key") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(4.dp))
+                    }
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
-                    ai.setApiKey(tempKey)
-                    showGeminiKeyDialog = false
+                    ai.providers.forEach { provider ->
+                        ai.setKey(provider.id, tempKeys[provider.id]?.value ?: "")
+                    }
+                    showSettingsDialog = false
                     Toast.makeText(ctx, "تم الحفظ!", Toast.LENGTH_SHORT).show()
-                }) { Text("حفظ") }
+                }) { Text("حفظ الكل") }
             },
             dismissButton = {
-                TextButton(onClick = { showGeminiKeyDialog = false }) { Text("إلغاء") }
+                TextButton(onClick = { showSettingsDialog = false }) { Text("إلغاء") }
             }
         )
     }
 }
-
-// ═══════════════ زر AI مخصص ═══════════════
 
 @Composable
 fun AiButton(
