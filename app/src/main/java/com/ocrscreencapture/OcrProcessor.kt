@@ -14,10 +14,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
-import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
-import java.net.URLEncoder
 import kotlin.coroutines.resume
 
 /**
@@ -65,20 +63,20 @@ class OcrProcessor(private val context: Context) {
             Log.d(TAG, "API Key: ${if (hasApiKey()) "yes" else "no"}")
             Log.d(TAG, "Online: ${isOnline()}")
 
-            val result: String
-val result = if (hasApiKey() && isOnline()) {
-    Log.d(TAG, "→ Using OCR.space (Arabic + English)")
-    val r = ocrSpaceRecognize(bitmap)
-    if (r.isBlank()) {
-        Log.w(TAG, "OCR.space empty, falling back to ML Kit")
-        mlKitRecognize(bitmap)
-    } else {
-        r
-    }
-} else {
-    Log.d(TAG, "→ Using ML Kit (English only)")
-    mlKitRecognize(bitmap)
-}
+            val result = if (hasApiKey() && isOnline()) {
+                Log.d(TAG, "→ Using OCR.space (Arabic + English)")
+                val r = ocrSpaceRecognize(bitmap)
+                if (r.isBlank()) {
+                    Log.w(TAG, "OCR.space empty, falling back to ML Kit")
+                    mlKitRecognize(bitmap)
+                } else {
+                    r
+                }
+            } else {
+                Log.d(TAG, "→ Using ML Kit (English only)")
+                mlKitRecognize(bitmap)
+            }
+
             val trimmed = result.trim()
             Log.d(TAG, "═══ Result: ${trimmed.length} chars ═══")
             Log.d(TAG, "'${trimmed.take(200)}'")
@@ -98,7 +96,7 @@ val result = if (hasApiKey() && isOnline()) {
             suspendCancellableCoroutine { cont ->
                 mlKitRecognizer.process(image)
                     .addOnSuccessListener { text ->
-                        if (cont.isActive) cont.resume(text.text)
+                        if (cont.isActive) cont.resume(text.text ?: "")
                     }
                     .addOnFailureListener { e ->
                         Log.e(TAG, "ML Kit fail", e)
@@ -118,31 +116,25 @@ val result = if (hasApiKey() && isOnline()) {
             try {
                 Log.d(TAG, "Calling OCR.space API...")
 
-                // تحويل الصورة إلى base64
                 val stream = ByteArrayOutputStream()
                 bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream)
                 val base64 = Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
                 Log.d(TAG, "Base64 length: ${base64.length}")
 
-                // بناء الطلب (multipart/form-data)
                 val boundary = "----WebKitFormBoundary" + System.currentTimeMillis()
                 val body = buildString {
-                    // الصورة
                     append("--$boundary\r\n")
                     append("Content-Disposition: form-data; name=\"base64Image\"\r\n\r\n")
                     append("data:image/jpeg;base64,$base64\r\n")
 
-                    // اللغة: عربي + إنجليزي
                     append("--$boundary\r\n")
                     append("Content-Disposition: form-data; name=\"language\"\r\n\r\n")
                     append("ara\r\n")
 
-                    // نوع المحرك: Engine 2 أفضل للعربي
                     append("--$boundary\r\n")
                     append("Content-Disposition: form-data; name=\"OCREngine\"\r\n\r\n")
                     append("2\r\n")
 
-                    // هل هو ملف مضغوط (صورة)
                     append("--$boundary\r\n")
                     append("Content-Disposition: form-data; name=\"isOverlayRequired\"\r\n\r\n")
                     append("false\r\n")
@@ -179,7 +171,6 @@ val result = if (hasApiKey() && isOnline()) {
                     Log.e(TAG, "OCR.space error $code: $err")
                     ""
                 }
-
             } catch (e: Exception) {
                 Log.e(TAG, "OCR.space error", e)
                 ""
