@@ -34,6 +34,18 @@ android {
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
     composeOptions { kotlinCompilerExtensionVersion = "1.5.10" }
+
+    // ✅ إصلاح 3: حماية من ملفات .so مكررة
+    packagingOptions {
+        jniLibs {
+            pickFirsts.add("**/libjpeg.so")
+            pickFirsts.add("**/libpng.so")
+            pickFirsts.add("**/libtiff.so")
+            pickFirsts.add("**/libwebp.so")
+            pickFirsts.add("**/liblept.so")
+            pickFirsts.add("**/libtesseract.so")
+        }
+    }
 }
 
 dependencies {
@@ -49,8 +61,10 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.8.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
 
-    // ✅ JitPack — الاسم الصحيح
-    implementation("com.github.adaptech-cz:tesseract4android:4.7.0")
+    // ✅ إصلاح 2: استبعاد النسخة openmp المكررة
+    implementation("com.github.adaptech-cz:tesseract4android:4.7.0") {
+        exclude(group = "com.github.adaptech-cz.tesseract4android", module = "tesseract4android-openmp")
+    }
 
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
