@@ -150,7 +150,7 @@ class OcrProcessor(private val context: Context) {
                     append("base64Image=")
                     append(URLEncoder.encode("data:image/jpeg;base64,$base64", "UTF-8"))
                     append("&language=ara")
-                    append("&OCREngine=2")
+                    append("&OCREngine=1")
                     append("&isOverlayRequired=false")
                     append("&scale=true")
                     append("&detectOrientation=true")
