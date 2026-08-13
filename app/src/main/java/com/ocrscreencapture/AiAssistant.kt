@@ -62,13 +62,13 @@ class AiAssistant(private val context: Context) {
             visionModel = "meta-llama/llama-3.2-90b-vision-instruct:free",
             freeNote = "مجاني — openrouter.ai/keys"
         ),
-        Provider(
+                Provider(
             id = "mistral",
             name = "Mistral",
             nameAr = "Mistral AI",
             url = "https://api.mistral.ai/v1/chat/completions",
             model = "mistral-small-latest",
-            visionModel = "pixtral-small-latest",
+            visionModel = "pixtral-12b-2409",    // ✅ كان: pixtral-small-latest
             freeNote = "مجاني — console.mistral.ai"
         )
     )
