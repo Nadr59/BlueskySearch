@@ -29,6 +29,10 @@
             android:name=".TextResultActivity"
             android:exported="false"
             android:theme="@style/Theme.OCRCapture" />
+                <activity
+            android:name=".ImageAnalysisActivity"
+            android:exported="false"
+            android:theme="@style/Theme.OCRCapture" />
 
         <activity
             android:name=".HistoryActivity"
