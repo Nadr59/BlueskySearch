@@ -1,9 +1,11 @@
 package com.ocrscreencapture
 
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
+import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -63,6 +65,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -83,27 +86,117 @@ import androidx.compose.ui.unit.sp
 import com.ocrscreencapture.data.HistoryDatabase
 import com.ocrscreencapture.data.ImageAnalysisItem
 import com.ocrscreencapture.ui.theme.OCRCaptureTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.net.URLEncoder
 
 class ImageAnalysisActivity : ComponentActivity() {
+
+    companion object {
+        const val EXTRA_SHARED_IMAGE_URI = "shared_image_uri"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { OCRCaptureTheme { ImageAnalysisScreen { finish() } } }
+
+        // ✅ فهم الصورة المشتركة من قوائم المشاركة
+        val sharedBitmap = extractSharedImage(intent)
+
+        setContent {
+            OCRCaptureTheme {
+                ImageAnalysisScreen(
+                    initialBitmap = sharedBitmap,
+                    onBack = { finish() }
+                )
+            }
+        }
+    }
+
+    // ✅ استقبال الصورة من مشاركة النظام
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+    }
+
+    private fun extractSharedImage(intent: Intent?): Bitmap? {
+        intent ?: return null
+
+        return try {
+            when (intent.action) {
+                Intent.ACTION_SEND -> {
+                    val uri: Uri? = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                        intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        intent.getParcelableExtra(Intent.EXTRA_STREAM)
+                    }
+                    uri?.let { loadBitmapFromUri(it) }
+                }
+                else -> null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun loadBitmapFromUri(uri: Uri): Bitmap? {
+        return try {
+            contentResolver.openInputStream(uri)?.use { stream ->
+                BitmapFactory.decodeStream(stream)
+            }
+        } catch (e: Exception) {
+            try {
+                // محاولة بديلة
+                @Suppress("DEPRECATION")
+                MediaStore.Images.Media.getBitmap(contentResolver, uri)
+            } catch (e2: Exception) {
+                null
+            }
+        }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ImageAnalysisScreen(onBack: () -> Unit) {
+fun ImageAnalysisScreen(
+    initialBitmap: Bitmap? = null,
+    onBack: () -> Unit
+) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val ai = remember { AiAssistant(ctx) }
 
-    var selectedBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var selectedBitmap by remember { mutableStateOf(initialBitmap) }
     var isAnalyzing by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<AiAssistant.AnalysisResult?>(null) }
     var showSettingsDialog by remember { mutableStateOf(false) }
+
+    // ✅ تحليل تلقائي عند استقبال صورة مشاركة
+    LaunchedEffect(initialBitmap) {
+        if (initialBitmap != null && ai.hasAnyKey()) {
+            isAnalyzing = true
+            val r = ai.analyzeImage(initialBitmap)
+            result = r
+            isAnalyzing = false
+
+            // حفظ في السجل
+            try {
+                HistoryDatabase.getDatabase(ctx).imageAnalysisDao().insert(
+                    ImageAnalysisItem(
+                        description = r.description,
+                        keywords = r.keywords.joinToString("، "),
+                        detectedText = r.detectedText,
+                        analysis = r.analysis,
+                        websites = r.websites.joinToString("\n") {
+                            "${it.first} | ${it.second}"
+                        },
+                        rawResponse = r.rawResponse
+                    )
+                )
+            } catch (_: Exception) {}
+        }
+    }
 
     val galleryLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
@@ -337,7 +430,6 @@ fun ImageAnalysisScreen(onBack: () -> Unit) {
                                 content = r.rawResponse
                             )
                         } else {
-                            // الوصف
                             if (r.description.isNotBlank()) {
                                 ResultCard(
                                     title = "الوصف",
@@ -348,7 +440,6 @@ fun ImageAnalysisScreen(onBack: () -> Unit) {
                                 Spacer(modifier = Modifier.height(8.dp))
                             }
 
-                            // التصنيف
                             if (r.classification.isNotBlank()) {
                                 ResultCard(
                                     title = "التصنيف",
@@ -359,7 +450,6 @@ fun ImageAnalysisScreen(onBack: () -> Unit) {
                                 Spacer(modifier = Modifier.height(8.dp))
                             }
 
-                            // الكلمات المفتاحية
                             if (r.keywords.isNotEmpty()) {
                                 Card(
                                     modifier = Modifier.fillMaxWidth(),
@@ -410,7 +500,6 @@ fun ImageAnalysisScreen(onBack: () -> Unit) {
                                 Spacer(modifier = Modifier.height(8.dp))
                             }
 
-                            // النص المكتشف
                             if (r.detectedText.isNotBlank() && r.detectedText != "لا يوجد نص") {
                                 ResultCard(
                                     title = "النص المكتشف",
@@ -421,7 +510,6 @@ fun ImageAnalysisScreen(onBack: () -> Unit) {
                                 Spacer(modifier = Modifier.height(8.dp))
                             }
 
-                            // التحليل
                             if (r.analysis.isNotBlank()) {
                                 ResultCard(
                                     title = "معلومات إضافية",
