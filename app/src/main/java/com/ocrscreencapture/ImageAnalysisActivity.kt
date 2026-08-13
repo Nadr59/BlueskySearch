@@ -1,4 +1,4 @@
- package com.ocrscreencapture
+package com.ocrscreencapture
 
 import android.content.Intent
 import android.graphics.BitmapFactory
@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TextSnippet
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -59,7 +60,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -126,12 +126,18 @@ fun ImageAnalysisScreen(onBack: () -> Unit) {
                 title = { Text("تحليل الصور") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, "رجوع")
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "رجوع"
+                        )
                     }
                 },
                 actions = {
                     IconButton(onClick = { showSettingsDialog = true }) {
-                        Icon(Icons.Default.Settings, "إعدادات")
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "إعدادات"
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -158,7 +164,10 @@ fun ImageAnalysisScreen(onBack: () -> Unit) {
                     containerColor = MaterialTheme.colorScheme.surfaceVariant
                 )
             ) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
                     if (selectedBitmap != null) {
                         Image(
                             bitmap = selectedBitmap!!.asImageBitmap(),
@@ -171,13 +180,14 @@ fun ImageAnalysisScreen(onBack: () -> Unit) {
                     } else {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(
-                                Icons.Default.Image, null,
+                                imageVector = Icons.Default.Image,
+                                contentDescription = null,
                                 modifier = Modifier.size(64.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                             )
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                "اختر صورة للتحليل",
+                                text = "اختر صورة للتحليل",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                             )
                         }
@@ -185,12 +195,12 @@ fun ImageAnalysisScreen(onBack: () -> Unit) {
                 }
             }
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             // ═══ أزرار ═══
 
             Row(
-                Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Button(
@@ -199,8 +209,12 @@ fun ImageAnalysisScreen(onBack: () -> Unit) {
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3))
                 ) {
-                    Icon(Icons.Default.PhotoLibrary, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.Default.PhotoLibrary,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text("من المعرض")
                 }
 
@@ -245,36 +259,44 @@ fun ImageAnalysisScreen(onBack: () -> Unit) {
                 ) {
                     if (isAnalyzing) {
                         CircularProgressIndicator(
-                            Modifier.size(18.dp),
-                            Color.White,
+                            modifier = Modifier.size(18.dp),
+                            color = Color.White,
                             strokeWidth = 2.dp
                         )
                     } else {
-                        Icon(Icons.Default.AutoAwesome, null, Modifier.size(18.dp))
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(if (isAnalyzing) "جاري..." else "تحليل")
                 }
             }
 
             // تحذير API Key
             if (!ai.hasAnyKey()) {
-                Spacer(Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 Card(
-                    Modifier.fillMaxWidth(),
-                    RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
                     colors = CardDefaults.cardColors(
                         containerColor = Color(0xFFBF360C).copy(alpha = 0.3f)
                     )
                 ) {
                     Row(
-                        Modifier.padding(12.dp),
+                        modifier = Modifier.padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.Warning, null, tint = Color(0xFFEF9A9A))
-                        Spacer(Modifier.width(8.dp))
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = Color(0xFFEF9A9A)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            "يتطلب API Key — اضغط الإعدادات",
+                            text = "يتطلب API Key — اضغط الإعدادات",
                             color = Color(0xFFEF9A9A),
                             fontSize = 13.sp
                         )
@@ -284,11 +306,14 @@ fun ImageAnalysisScreen(onBack: () -> Unit) {
 
             // حالة التحميل
             if (isAnalyzing) {
-                Spacer(Modifier.height(24.dp))
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Spacer(modifier = Modifier.height(24.dp))
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(color = Color(0xFF4CAF50))
-                        Spacer(Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
                         Text("جاري تحليل الصورة...", color = Color(0xFF888888))
                     }
                 }
@@ -302,40 +327,65 @@ fun ImageAnalysisScreen(onBack: () -> Unit) {
             ) {
                 result?.let { r ->
                     Column {
-                        Spacer(Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
 
-                        // إذا فشل التحليل الهيكلي
                         if (r.rawResponse.isNotBlank() && r.description.isBlank()) {
-                            ResultCard("نتيجة التحليل", Icons.Default.AutoAwesome, Color(0xFFFFD700), r.rawResponse)
+                            ResultCard(
+                                title = "نتيجة التحليل",
+                                icon = Icons.Default.AutoAwesome,
+                                color = Color(0xFFFFD700),
+                                content = r.rawResponse
+                            )
                         } else {
                             // الوصف
                             if (r.description.isNotBlank()) {
-                                ResultCard("الوصف", Icons.Default.Description, Color(0xFF4CAF50), r.description)
-                                Spacer(Modifier.height(8.dp))
+                                ResultCard(
+                                    title = "الوصف",
+                                    icon = Icons.Default.Description,
+                                    color = Color(0xFF4CAF50),
+                                    content = r.description
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
                             }
 
                             // التصنيف
                             if (r.classification.isNotBlank()) {
-                                ResultCard("التصنيف", Icons.Default.Category, Color(0xFF00BCD4), r.classification)
-                                Spacer(Modifier.height(8.dp))
+                                ResultCard(
+                                    title = "التصنيف",
+                                    icon = Icons.Default.Category,
+                                    color = Color(0xFF00BCD4),
+                                    content = r.classification
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
                             }
 
                             // الكلمات المفتاحية
                             if (r.keywords.isNotEmpty()) {
                                 Card(
-                                    Modifier.fillMaxWidth(),
-                                    RoundedCornerShape(12.dp),
-                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A2E))
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = Color(0xFF1A1A2E)
+                                    )
                                 ) {
-                                    Column(Modifier.padding(16.dp)) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(Icons.Default.Label, null, tint = Color(0xFFFFD700), Modifier.size(20.dp))
-                                            Spacer(Modifier.width(8.dp))
-                                            Text("الكلمات المفتاحية", fontWeight = FontWeight.Bold, color = Color.White)
+                                            Icon(
+                                                imageVector = Icons.Default.Label,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(20.dp),
+                                                tint = Color(0xFFFFD700)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "الكلمات المفتاحية",
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White
+                                            )
                                         }
-                                        Spacer(Modifier.height(8.dp))
+                                        Spacer(modifier = Modifier.height(8.dp))
                                         Row(
-                                            Modifier.fillMaxWidth(),
+                                            modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
                                             r.keywords.take(6).forEach { kw ->
@@ -344,8 +394,11 @@ fun ImageAnalysisScreen(onBack: () -> Unit) {
                                                     color = Color(0xFF4CAF50).copy(alpha = 0.2f)
                                                 ) {
                                                     Text(
-                                                        kw,
-                                                        Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                                        text = kw,
+                                                        modifier = Modifier.padding(
+                                                            horizontal = 10.dp,
+                                                            vertical = 4.dp
+                                                        ),
                                                         color = Color(0xFF81C784),
                                                         fontSize = 12.sp
                                                     )
@@ -354,66 +407,105 @@ fun ImageAnalysisScreen(onBack: () -> Unit) {
                                         }
                                     }
                                 }
-                                Spacer(Modifier.height(8.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
                             }
 
                             // النص المكتشف
                             if (r.detectedText.isNotBlank() && r.detectedText != "لا يوجد نص") {
-                                ResultCard("النص المكتشف", Icons.Default.TextSnippet, Color(0xFFFF9800), r.detectedText)
-                                Spacer(Modifier.height(8.dp))
+                                ResultCard(
+                                    title = "النص المكتشف",
+                                    icon = Icons.Default.TextSnippet,
+                                    color = Color(0xFFFF9800),
+                                    content = r.detectedText
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
                             }
 
                             // التحليل
                             if (r.analysis.isNotBlank()) {
-                                ResultCard("معلومات إضافية", Icons.Default.Insights, Color(0xFF9C27B0), r.analysis)
-                                Spacer(Modifier.height(8.dp))
+                                ResultCard(
+                                    title = "معلومات إضافية",
+                                    icon = Icons.Default.Insights,
+                                    color = Color(0xFF9C27B0),
+                                    content = r.analysis
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
                             }
 
-                            // المواقع + بحث
+                            // ═══ المواقع + بحث ═══
+
                             Card(
-                                Modifier.fillMaxWidth(),
-                                RoundedCornerShape(12.dp),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF16213E))
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = Color(0xFF16213E)
+                                )
                             ) {
-                                Column(Modifier.padding(16.dp)) {
+                                Column(modifier = Modifier.padding(16.dp)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.Language, null, tint = Color(0xFF00BCD4), Modifier.size(20.dp))
-                                        Spacer(Modifier.width(8.dp))
-                                        Text("مواقع وبحث", fontWeight = FontWeight.Bold, color = Color.White)
+                                        Icon(
+                                            imageVector = Icons.Default.Language,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(20.dp),
+                                            tint = Color(0xFF00BCD4)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "مواقع وبحث",
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
                                     }
-                                    Spacer(Modifier.height(4.dp))
+                                    Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        "فتح مباشر — أنت تقرر ما تتصفح",
+                                        text = "فتح مباشر — أنت تقرر ما تتصفح",
                                         fontSize = 11.sp,
                                         color = Color(0xFF666666)
                                     )
-                                    Spacer(Modifier.height(12.dp))
+                                    Spacer(modifier = Modifier.height(12.dp))
 
                                     r.websites.forEach { (name, url) ->
-                                        WebsiteRow(name, url)
+                                        WebsiteRow(name = name, url = url)
                                     }
 
-                                    Spacer(Modifier.height(12.dp))
+                                    Spacer(modifier = Modifier.height(12.dp))
                                     HorizontalDivider(color = Color(0xFF333344))
-                                    Spacer(Modifier.height(12.dp))
+                                    Spacer(modifier = Modifier.height(12.dp))
 
-                                    Text("بحث مفتوح", fontWeight = FontWeight.Bold, color = Color(0xFF888888), fontSize = 13.sp)
-                                    Spacer(Modifier.height(8.dp))
+                                    Text(
+                                        text = "بحث مفتوح",
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF888888),
+                                        fontSize = 13.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
 
                                     if (r.description.isNotBlank()) {
-                                        SearchRow("بـحـث: ${r.description.take(50)}...", r.description)
-                                        Spacer(Modifier.height(4.dp))
+                                        SearchRow(
+                                            label = "بحث: ${r.description.take(50)}...",
+                                            query = r.description
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
                                     }
                                     if (r.keywords.isNotEmpty()) {
-                                        SearchRow("بحث: ${r.keywords.take(3).joinToString(" ")}", r.keywords.joinToString(" "))
-                                        Spacer(Modifier.height(4.dp))
+                                        SearchRow(
+                                            label = "بحث: ${r.keywords.take(3).joinToString(" ")}",
+                                            query = r.keywords.joinToString(" ")
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
                                     }
                                     if (r.detectedText.isNotBlank() && r.detectedText != "لا يوجد نص") {
-                                        SearchRow("بحث: ${r.detectedText.take(50)}...", r.detectedText)
-                                        Spacer(Modifier.height(4.dp))
+                                        SearchRow(
+                                            label = "بحث: ${r.detectedText.take(50)}...",
+                                            query = r.detectedText
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
                                     }
                                     if (r.classification.isNotBlank()) {
-                                        SearchRow("بحث: ${r.classification}", r.classification)
+                                        SearchRow(
+                                            label = "بحث: ${r.classification}",
+                                            query = r.classification
+                                        )
                                     }
                                 }
                             }
@@ -422,7 +514,7 @@ fun ImageAnalysisScreen(onBack: () -> Unit) {
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 
@@ -436,33 +528,48 @@ fun ImageAnalysisScreen(onBack: () -> Unit) {
             onDismissRequest = { showSettingsDialog = false },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Settings, null)
-                    Spacer(Modifier.width(8.dp))
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = null
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("إعدادات AI")
                 }
             },
             text = {
-                Column(Modifier.verticalScroll(rememberScrollState())) {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     Text(
-                        "أضف API Key من مزود واحد أو أكثر.\nالمزود الأول يُستخدم أولاً.",
+                        text = "أضف API Key من مزود واحد أو أكثر.\nالمزود الأول يُستخدم أولاً.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
                     ai.providers.forEach { p ->
                         Card(
-                            Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                            RoundedCornerShape(8.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
                         ) {
-                            Column(Modifier.padding(12.dp)) {
-                                Text(p.nameAr, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                Text(p.freeNote, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Spacer(Modifier.height(6.dp))
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = p.nameAr,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    text = p.freeNote,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
                                 OutlinedTextField(
                                     value = tempKeys[p.id]?.value ?: "",
                                     onValueChange = { tempKeys[p.id]?.value = it },
-                                    label = { Text("${p.name} API Key") },
+                                    label = { Text(text = "${p.name} API Key") },
                                     modifier = Modifier.fillMaxWidth(),
                                     singleLine = true,
                                     shape = RoundedCornerShape(8.dp),
@@ -483,10 +590,14 @@ fun ImageAnalysisScreen(onBack: () -> Unit) {
                     }
                     showSettingsDialog = false
                     Toast.makeText(ctx, "تم الحفظ!", Toast.LENGTH_SHORT).show()
-                }) { Text("حفظ الكل") }
+                }) {
+                    Text("حفظ الكل")
+                }
             },
             dismissButton = {
-                TextButton(onClick = { showSettingsDialog = false }) { Text("إلغاء") }
+                TextButton(onClick = { showSettingsDialog = false }) {
+                    Text("إلغاء")
+                }
             }
         )
     }
@@ -495,20 +606,39 @@ fun ImageAnalysisScreen(onBack: () -> Unit) {
 // ═══════════════ مكونات مساعدة ═══════════════
 
 @Composable
-fun ResultCard(title: String, icon: ImageVector, color: Color, content: String) {
+fun ResultCard(
+    title: String,
+    icon: ImageVector,
+    color: Color,
+    content: String
+) {
     Card(
-        Modifier.fillMaxWidth(),
-        RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A2E))
     ) {
-        Column(Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(icon, null, tint = color, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(title, fontWeight = FontWeight.Bold, color = Color.White)
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = color
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = title,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
             }
-            Spacer(Modifier.height(8.dp))
-            Text(content, color = Color(0xFFE0E0E0), fontSize = 14.sp, lineHeight = 22.sp)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = content,
+                color = Color(0xFFE0E0E0),
+                fontSize = 14.sp,
+                lineHeight = 22.sp
+            )
         }
     }
 }
@@ -525,7 +655,11 @@ fun WebsiteRow(name: String, url: String) {
                     ctx.startActivity(
                         Intent(
                             Intent.ACTION_VIEW,
-                            Uri.parse("https://www.google.com/search?q=${URLEncoder.encode(name, "UTF-8")}")
+                            Uri.parse(
+                                "https://www.google.com/search?q=${
+                                    URLEncoder.encode(name, "UTF-8")
+                                }"
+                            )
                         )
                     )
                 } catch (_: Exception) {}
@@ -537,18 +671,31 @@ fun WebsiteRow(name: String, url: String) {
         shape = RoundedCornerShape(8.dp),
         color = Color(0xFF0D1B2A)
     ) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.OpenInNew, null, tint = Color(0xFF00BCD4), Modifier.size(16.dp))
-            Spacer(Modifier.width(8.dp))
-            Column(Modifier.weight(1f)) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.OpenInNew,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = Color(0xFF00BCD4)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    name,
+                    text = name,
                     color = Color(0xFF00BCD4),
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
                     textDecoration = TextDecoration.Underline
                 )
-                Text(url, color = Color(0xFF555555), fontSize = 11.sp, maxLines = 1)
+                Text(
+                    text = url,
+                    color = Color(0xFF555555),
+                    fontSize = 11.sp,
+                    maxLines = 1
+                )
             }
         }
     }
@@ -563,7 +710,11 @@ fun SearchRow(label: String, query: String) {
                 ctx.startActivity(
                     Intent(
                         Intent.ACTION_VIEW,
-                        Uri.parse("https://www.google.com/search?q=${URLEncoder.encode(query, "UTF-8")}")
+                        Uri.parse(
+                            "https://www.google.com/search?q=${
+                                URLEncoder.encode(query, "UTF-8")
+                            }"
+                        )
                     )
                 )
             } catch (_: Exception) {}
@@ -572,10 +723,23 @@ fun SearchRow(label: String, query: String) {
         shape = RoundedCornerShape(8.dp),
         color = Color(0xFF1B2838)
     ) {
-        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.Search, null, tint = Color(0xFF888888), Modifier.size(14.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(label, color = Color(0xFF888888), fontSize = 13.sp, maxLines = 1)
+        Row(
+            modifier = Modifier.padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = Color(0xFF888888)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = label,
+                color = Color(0xFF888888),
+                fontSize = 13.sp,
+                maxLines = 1
+            )
         }
     }
 }
