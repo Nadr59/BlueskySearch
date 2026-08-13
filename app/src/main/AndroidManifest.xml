@@ -2,19 +2,24 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- أذونات -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
 
     <application
         android:allowBackup="true"
-        android:label="OCR Capture"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.OCRCapture"
         tools:targetApi="34">
 
+        <!-- الشاشة الرئيسية -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -25,20 +30,47 @@
             </intent-filter>
         </activity>
 
+        <!-- شاشة النتيجة -->
         <activity
             android:name=".TextResultActivity"
             android:exported="false"
             android:theme="@style/Theme.OCRCapture" />
-                <activity
-            android:name=".ImageAnalysisActivity"
-            android:exported="false"
-            android:theme="@style/Theme.OCRCapture" />
 
+        <!-- تحليل الصور + استقبال المشاركات -->
+        <activity
+            android:name=".ImageAnalysisActivity"
+            android:exported="true"
+            android:theme="@style/Theme.OCRCapture"
+            android:launchMode="singleTop">
+
+            <!-- فتح عادي من التطبيق -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+            </intent-filter>
+
+            <!-- ✅ استقبال صور مشاركة (يظهر في قائمة المشاركة) -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+
+            <!-- ✅ استقبال عدة صور -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+
+        </activity>
+
+        <!-- سجل التحليلات -->
         <activity
             android:name=".HistoryActivity"
             android:exported="false"
             android:theme="@style/Theme.OCRCapture" />
 
+        <!-- خدمة الالتقاط العائم -->
         <service
             android:name=".FloatingWindowService"
             android:exported="false"
