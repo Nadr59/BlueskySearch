@@ -33,7 +33,7 @@ class AiAssistant(private val context: Context) {
         val visionModel: String,
         val freeNote: String
     )
-    
+
     val providers = listOf(
         Provider(
             id = "hcnsec",
@@ -44,17 +44,6 @@ class AiAssistant(private val context: Context) {
             visionModel = "auto",
             freeNote = "مجاني — hcnsec.cn"
         ),
-        Provider(
-            id = "groq",
-            name = "Groq",
-            nameAr = "Groq (سريع جداً)",
-            url = "https://api.groq.com/openai/v1/chat/completions",
-            model = "llama-3.3-70b-versatile",
-            visionModel = "llama-3.2-90b-vision-preview",
-            freeNote = "مجاني — console.groq.com"
-        ),
-        // ... بقية المزودين كما هم
-    val providers = listOf(
         Provider(
             id = "groq",
             name = "Groq",
@@ -82,13 +71,13 @@ class AiAssistant(private val context: Context) {
             visionModel = "meta-llama/llama-3.2-90b-vision-instruct:free",
             freeNote = "مجاني — openrouter.ai/keys"
         ),
-                Provider(
+        Provider(
             id = "mistral",
             name = "Mistral",
             nameAr = "Mistral AI",
             url = "https://api.mistral.ai/v1/chat/completions",
             model = "mistral-small-latest",
-            visionModel = "pixtral-12b-2409",    // ✅ كان: pixtral-small-latest
+            visionModel = "pixtral-12b-2409",
             freeNote = "مجاني — console.mistral.ai"
         )
     )
@@ -145,7 +134,7 @@ class AiAssistant(private val context: Context) {
         )
     }
 
-    // ═══════════════ تحليل الصور ═══════════════
+    // ═══════════════ تحليل الصور (القديم — متوافق) ═══════════════
 
     data class AnalysisResult(
         val description: String = "",
@@ -177,8 +166,7 @@ class AiAssistant(private val context: Context) {
 
 ===المواقع===
 اقترح 5 إلى 8 مواقع وخدمات مرتبطة بمحتوى الصورة. أي موقع مفيد ومرتبط يصلح. اكتب بالشكل:
-اسم الموقع | https://www.example.com
-يمكن أن تشمل: مواقع رسمية، مقالات ويكيبيديا، متاجر، قنوات يوتيوب، تطبيقات، أدوات، مدونات، أي شيء مفيد ومرتبط بالمحتوى"""
+اسم الموقع | https://www.example.com"""
 
         val rawResult = callVisionWithFallback(bitmap, prompt)
         return parseAnalysisResponse(rawResult)
@@ -239,6 +227,17 @@ class AiAssistant(private val context: Context) {
             Log.e(TAG, "Parse analysis failed", e)
             AnalysisResult(rawResponse = raw)
         }
+    }
+
+    // ═══════════════ تحليل متعدد المناهج ═══════════════
+
+    suspend fun analyzeWithMethods(
+        bitmap: Bitmap,
+        methods: List<AnalysisMethod>
+    ): Map<String, String> {
+        val prompt = AnalysisMethod.buildCombinedPrompt(methods)
+        val rawResult = callVisionWithFallback(bitmap, prompt)
+        return AnalysisMethod.parseSections(rawResult, methods)
     }
 
     // ═══════════════ التبديل التلقائي (نص) ═══════════════
@@ -534,15 +533,5 @@ class AiAssistant(private val context: Context) {
         } catch (_: Exception) {
             error.take(100)
         }
-    }
-        // ═══════════════ تحليل متعدد المناهج ═══════════════
-
-    suspend fun analyzeWithMethods(
-        bitmap: Bitmap,
-        methods: List<AnalysisMethod>
-    ): Map<String, String> {
-        val prompt = AnalysisMethod.buildCombinedPrompt(methods)
-        val rawResult = callVisionWithFallback(bitmap, prompt)
-        return AnalysisMethod.parseSections(rawResult, methods)
     }
 }
