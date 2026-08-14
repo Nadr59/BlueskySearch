@@ -515,4 +515,14 @@ class AiAssistant(private val context: Context) {
             error.take(100)
         }
     }
+        // ═══════════════ تحليل متعدد المناهج ═══════════════
+
+    suspend fun analyzeWithMethods(
+        bitmap: Bitmap,
+        methods: List<AnalysisMethod>
+    ): Map<String, String> {
+        val prompt = AnalysisMethod.buildCombinedPrompt(methods)
+        val rawResult = callVisionWithFallback(bitmap, prompt)
+        return AnalysisMethod.parseSections(rawResult, methods)
+    }
 }
