@@ -12,12 +12,18 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,18 +37,25 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Category
-import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FindInPage
 import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Insights
-import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.TextSnippet
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -50,16 +63,24 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -67,6 +88,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -81,28 +103,21 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ocrscreencapture.data.HistoryDatabase
 import com.ocrscreencapture.data.ImageAnalysisItem
 import com.ocrscreencapture.ui.theme.OCRCaptureTheme
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.net.URLEncoder
 
+// ═══════════════ Activity ═══════════════
+
 class ImageAnalysisActivity : ComponentActivity() {
-
-    companion object {
-        const val EXTRA_SHARED_IMAGE_URI = "shared_image_uri"
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // ✅ فهم الصورة المشتركة من قوائم المشاركة
         val sharedBitmap = extractSharedImage(intent)
-
         setContent {
             OCRCaptureTheme {
                 ImageAnalysisScreen(
@@ -113,7 +128,6 @@ class ImageAnalysisActivity : ComponentActivity() {
         }
     }
 
-    // ✅ استقبال الصورة من مشاركة النظام
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -121,7 +135,6 @@ class ImageAnalysisActivity : ComponentActivity() {
 
     private fun extractSharedImage(intent: Intent?): Bitmap? {
         intent ?: return null
-
         return try {
             when (intent.action) {
                 Intent.ACTION_SEND -> {
@@ -135,29 +148,24 @@ class ImageAnalysisActivity : ComponentActivity() {
                 }
                 else -> null
             }
-        } catch (e: Exception) {
-            null
-        }
+        } catch (_: Exception) { null }
     }
 
     private fun loadBitmapFromUri(uri: Uri): Bitmap? {
         return try {
-            contentResolver.openInputStream(uri)?.use { stream ->
-                BitmapFactory.decodeStream(stream)
-            }
-        } catch (e: Exception) {
+            contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+        } catch (_: Exception) {
             try {
-                // محاولة بديلة
                 @Suppress("DEPRECATION")
                 MediaStore.Images.Media.getBitmap(contentResolver, uri)
-            } catch (e2: Exception) {
-                null
-            }
+            } catch (_: Exception) { null }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+// ═══════════════ الشاشة الرئيسية ═══════════════
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ImageAnalysisScreen(
     initialBitmap: Bitmap? = null,
@@ -166,35 +174,26 @@ fun ImageAnalysisScreen(
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val ai = remember { AiAssistant(ctx) }
+    val allMethods = remember { AnalysisMethod.getAllMethods() }
 
     var selectedBitmap by remember { mutableStateOf(initialBitmap) }
     var isAnalyzing by remember { mutableStateOf(false) }
-    var result by remember { mutableStateOf<AiAssistant.AnalysisResult?>(null) }
+    var analysisResults by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var showSettingsDialog by remember { mutableStateOf(false) }
+    var isAdvancedMode by remember { mutableStateOf(false) }
+    var selectedQuickMethod by remember { mutableStateOf<AnalysisMethod?>(null) }
+    val selectedMethods = remember { mutableStateListOf<AnalysisMethod>() }
 
-    // ✅ تحليل تلقائي عند استقبال صورة مشاركة
+    // تحليل تلقائي عند استقبال صورة مشاركة
     LaunchedEffect(initialBitmap) {
         if (initialBitmap != null && ai.hasAnyKey()) {
+            val defaultMethod = allMethods.first { it.id == "general" }
+            selectedQuickMethod = defaultMethod
             isAnalyzing = true
-            val r = ai.analyzeImage(initialBitmap)
-            result = r
+            val results = ai.analyzeWithMethods(initialBitmap, listOf(defaultMethod))
+            analysisResults = results
             isAnalyzing = false
-
-            // حفظ في السجل
-            try {
-                HistoryDatabase.getDatabase(ctx).imageAnalysisDao().insert(
-                    ImageAnalysisItem(
-                        description = r.description,
-                        keywords = r.keywords.joinToString("، "),
-                        detectedText = r.detectedText,
-                        analysis = r.analysis,
-                        websites = r.websites.joinToString("\n") {
-                            "${it.first} | ${it.second}"
-                        },
-                        rawResponse = r.rawResponse
-                    )
-                )
-            } catch (_: Exception) {}
+            saveToHistory(ctx, results, listOf(defaultMethod))
         }
     }
 
@@ -202,12 +201,12 @@ fun ImageAnalysisScreen(
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let {
-            result = null
+            analysisResults = emptyMap()
             try {
-                val stream = ctx.contentResolver.openInputStream(it)
-                selectedBitmap = BitmapFactory.decodeStream(stream)
-                stream?.close()
-            } catch (e: Exception) {
+                ctx.contentResolver.openInputStream(it)?.use { stream ->
+                    selectedBitmap = BitmapFactory.decodeStream(stream)
+                }
+            } catch (_: Exception) {
                 Toast.makeText(ctx, "خطأ في تحميل الصورة", Toast.LENGTH_SHORT).show()
             }
         }
@@ -219,18 +218,12 @@ fun ImageAnalysisScreen(
                 title = { Text("تحليل الصور") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "رجوع"
-                        )
+                        Icon(imageVector = Icons.Default.ArrowBack, contentDescription = "رجوع")
                     }
                 },
                 actions = {
                     IconButton(onClick = { showSettingsDialog = true }) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "إعدادات"
-                        )
+                        Icon(imageVector = Icons.Default.Settings, contentDescription = "إعدادات")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -251,16 +244,13 @@ fun ImageAnalysisScreen(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 180.dp, max = 320.dp),
+                    .heightIn(min = 150.dp, max = 280.dp),
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant
                 )
             ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     if (selectedBitmap != null) {
                         Image(
                             bitmap = selectedBitmap!!.asImageBitmap(),
@@ -275,14 +265,207 @@ fun ImageAnalysisScreen(
                             Icon(
                                 imageVector = Icons.Default.Image,
                                 contentDescription = null,
-                                modifier = Modifier.size(64.dp),
+                                modifier = Modifier.size(56.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "اختر صورة للتحليل",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                "اختر صورة أو شاركها من لقطة الشاشة",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                fontSize = 13.sp
                             )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // زر اختيار من المعرض
+            Button(
+                onClick = { galleryLauncher.launch("image/*") },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3))
+            ) {
+                Icon(imageVector = Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("اختر صورة من المعرض")
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // ═══ اختيار نوع التحليل ═══
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A2E))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    // العنوان + مفتاح الوضع المتقدم
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = Color(0xFFFFD700),
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "نوع التحليل",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            color = Color.White,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text("متقدم", fontSize = 12.sp, color = Color(0xFF888888))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Switch(
+                            checked = isAdvancedMode,
+                            onCheckedChange = {
+                                isAdvancedMode = it
+                                if (!it) selectedMethods.clear()
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color(0xFF4CAF50),
+                                checkedTrackColor = Color(0xFF4CAF50).copy(alpha = 0.3f)
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // ═══ الوضع السريع ═══
+                    if (!isAdvancedMode) {
+                        Text(
+                            "اختر نوع واحد:",
+                            fontSize = 12.sp,
+                            color = Color(0xFF888888)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            allMethods.forEach { method ->
+                                val isSelected = selectedQuickMethod?.id == method.id
+                                val icon = getMethodIcon(method.id)
+                                val color = getMethodColor(method.id)
+
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = {
+                                        selectedQuickMethod = if (isSelected) null else method
+                                    },
+                                    label = {
+                                        Text(method.nameAr, fontSize = 12.sp)
+                                    },
+                                    leadingIcon = if (isSelected) {
+                                        {
+                                            Icon(
+                                                imageVector = Icons.Default.CheckCircle,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    } else {
+                                        {
+                                            Icon(
+                                                imageVector = icon,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = color.copy(alpha = 0.3f),
+                                        selectedLabelColor = color,
+                                        selectedLeadingIconColor = color,
+                                        containerColor = Color(0xFF0D1B2A),
+                                        labelColor = Color(0xFFAAAAAA),
+                                        iconColor = Color(0xFF666666)
+                                    ),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        if (isSelected) color.copy(alpha = 0.5f) else Color(0xFF333344)
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    // ═══ الوضع المتقدم ═══
+                    if (isAdvancedMode) {
+                        Text(
+                            "اختر أكثر من منهج:",
+                            fontSize = 12.sp,
+                            color = Color(0xFF888888)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        allMethods.forEach { method ->
+                            val isChecked = selectedMethods.any { it.id == method.id }
+                            val icon = getMethodIcon(method.id)
+                            val color = getMethodColor(method.id)
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        if (isChecked) {
+                                            selectedMethods.removeAll { it.id == method.id }
+                                        } else {
+                                            selectedMethods.add(method)
+                                        }
+                                    }
+                                    .background(
+                                        if (isChecked) color.copy(alpha = 0.1f)
+                                        else Color.Transparent
+                                    )
+                                    .padding(vertical = 4.dp, horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = isChecked,
+                                    onCheckedChange = { checked ->
+                                        if (checked) selectedMethods.add(method)
+                                        else selectedMethods.removeAll { it.id == method.id }
+                                    },
+                                    colors = CheckboxDefaults.colors(
+                                        checkedColor = color,
+                                        uncheckedColor = Color(0xFF555555)
+                                    )
+                                )
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp),
+                                    tint = if (isChecked) color else Color(0xFF666666)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        method.nameAr,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = if (isChecked) Color.White else Color(0xFFAAAAAA)
+                                    )
+                                    Text(
+                                        method.descriptionAr,
+                                        fontSize = 11.sp,
+                                        color = if (isChecked) color.copy(alpha = 0.7f) else Color(0xFF555555),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -290,124 +473,85 @@ fun ImageAnalysisScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // ═══ أزرار ═══
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Button(
-                    onClick = { galleryLauncher.launch("image/*") },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3))
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PhotoLibrary,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("من المعرض")
-                }
-
-                Button(
-                    onClick = {
-                        if (selectedBitmap != null && ai.hasAnyKey()) {
-                            isAnalyzing = true
-                            result = null
-                            scope.launch {
-                                val r = ai.analyzeImage(selectedBitmap!!)
-                                result = r
-                                isAnalyzing = false
-
-                                try {
-                                    HistoryDatabase.getDatabase(ctx).imageAnalysisDao().insert(
-                                        ImageAnalysisItem(
-                                            description = r.description,
-                                            keywords = r.keywords.joinToString("، "),
-                                            detectedText = r.detectedText,
-                                            analysis = r.analysis,
-                                            websites = r.websites.joinToString("\n") {
-                                                "${it.first} | ${it.second}"
-                                            },
-                                            rawResponse = r.rawResponse
-                                        )
-                                    )
-                                } catch (_: Exception) {}
-                            }
-                        } else if (selectedBitmap == null) {
-                            Toast.makeText(ctx, "اختر صورة أولاً", Toast.LENGTH_SHORT).show()
-                        } else {
-                            Toast.makeText(ctx, "أضف API Key من الإعدادات", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                    enabled = selectedBitmap != null && !isAnalyzing && ai.hasAnyKey(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF4CAF50),
-                        disabledContainerColor = Color(0xFF333333)
-                    )
-                ) {
-                    if (isAnalyzing) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            color = Color.White,
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.AutoAwesome,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(if (isAnalyzing) "جاري..." else "تحليل")
-                }
-            }
-
             // تحذير API Key
             if (!ai.hasAnyKey()) {
-                Spacer(modifier = Modifier.height(8.dp))
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(8.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = Color(0xFFBF360C).copy(alpha = 0.3f)
-                    )
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFBF360C).copy(alpha = 0.3f))
                 ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Warning,
-                            contentDescription = null,
-                            tint = Color(0xFFEF9A9A)
-                        )
+                    Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(imageVector = Icons.Default.Warning, contentDescription = null, tint = Color(0xFFEF9A9A))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "يتطلب API Key — اضغط الإعدادات",
-                            color = Color(0xFFEF9A9A),
-                            fontSize = 13.sp
-                        )
+                        Text("يتطلب API Key — اضغط الإعدادات", color = Color(0xFFEF9A9A), fontSize = 13.sp)
                     }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            // ═══ زر التحليل ═══
+
+            val methodsToAnalyze = if (isAdvancedMode) selectedMethods.toList()
+            else listOfNotNull(selectedQuickMethod)
+
+            Button(
+                onClick = {
+                    if (selectedBitmap != null && methodsToAnalyze.isNotEmpty() && ai.hasAnyKey()) {
+                        isAnalyzing = true
+                        analysisResults = emptyMap()
+                        scope.launch {
+                            val results = ai.analyzeWithMethods(selectedBitmap!!, methodsToAnalyze)
+                            analysisResults = results
+                            isAnalyzing = false
+                            saveToHistory(ctx, results, methodsToAnalyze)
+                        }
+                    } else if (selectedBitmap == null) {
+                        Toast.makeText(ctx, "اختر صورة أولاً", Toast.LENGTH_SHORT).show()
+                    } else if (methodsToAnalyze.isEmpty()) {
+                        Toast.makeText(ctx, "اختر نوع التحليل", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(ctx, "أضف API Key من الإعدادات", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                enabled = selectedBitmap != null && methodsToAnalyze.isNotEmpty() && !isAnalyzing && ai.hasAnyKey(),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF4CAF50),
+                    disabledContainerColor = Color(0xFF333333)
+                )
+            ) {
+                if (isAnalyzing) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("جاري التحليل...", fontSize = 16.sp)
+                } else {
+                    Icon(imageVector = Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        "تحليل" + if (methodsToAnalyze.size > 1) " (${methodsToAnalyze.size} مناهج)" else "",
+                        fontSize = 16.sp
+                    )
                 }
             }
 
             // حالة التحميل
             if (isAnalyzing) {
-                Spacer(modifier = Modifier.height(24.dp))
-                Box(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentAlignment = Alignment.Center
-                ) {
+                Spacer(modifier = Modifier.height(20.dp))
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(color = Color(0xFF4CAF50))
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
                         Text("جاري تحليل الصورة...", color = Color(0xFF888888))
+                        if (methodsToAnalyze.size > 1) {
+                            Text(
+                                "${methodsToAnalyze.size} مناهج — قد يستغرق وقتاً أطول",
+                                color = Color(0xFF666666),
+                                fontSize = 12.sp
+                            )
+                        }
                     }
                 }
             }
@@ -415,187 +559,88 @@ fun ImageAnalysisScreen(
             // ═══ نتائج التحليل ═══
 
             AnimatedVisibility(
-                visible = result != null && !isAnalyzing,
+                visible = analysisResults.isNotEmpty() && !isAnalyzing,
                 enter = fadeIn() + slideInVertically()
             ) {
-                result?.let { r ->
-                    Column {
-                        Spacer(modifier = Modifier.height(16.dp))
+                Column {
+                    Spacer(modifier = Modifier.height(16.dp))
 
-                        if (r.rawResponse.isNotBlank() && r.description.isBlank()) {
-                            ResultCard(
-                                title = "نتيجة التحليل",
-                                icon = Icons.Default.AutoAwesome,
-                                color = Color(0xFFFFD700),
-                                content = r.rawResponse
-                            )
-                        } else {
-                            if (r.description.isNotBlank()) {
-                                ResultCard(
-                                    title = "الوصف",
-                                    icon = Icons.Default.Description,
-                                    color = Color(0xFF4CAF50),
-                                    content = r.description
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                            }
+                    Text(
+                        "النتائج",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = Color.White
+                    )
 
-                            if (r.classification.isNotBlank()) {
-                                ResultCard(
-                                    title = "التصنيف",
-                                    icon = Icons.Default.Category,
-                                    color = Color(0xFF00BCD4),
-                                    content = r.classification
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                            }
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                            if (r.keywords.isNotEmpty()) {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = Color(0xFF1A1A2E)
+                    analysisResults.forEach { (methodId, content) ->
+                        val method = allMethods.find { it.id == methodId }
+                        val icon = getMethodIcon(methodId)
+                        val color = getMethodColor(methodId)
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF16213E))
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(22.dp),
+                                        tint = color
                                     )
-                                ) {
-                                    Column(modifier = Modifier.padding(16.dp)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(
-                                                imageVector = Icons.Default.Label,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(20.dp),
-                                                tint = Color(0xFFFFD700)
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text(
-                                                text = "الكلمات المفتاحية",
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color.White
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            r.keywords.take(6).forEach { kw ->
-                                                Surface(
-                                                    shape = RoundedCornerShape(16.dp),
-                                                    color = Color(0xFF4CAF50).copy(alpha = 0.2f)
-                                                ) {
-                                                    Text(
-                                                        text = kw,
-                                                        modifier = Modifier.padding(
-                                                            horizontal = 10.dp,
-                                                            vertical = 4.dp
-                                                        ),
-                                                        color = Color(0xFF81C784),
-                                                        fontSize = 12.sp
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(8.dp))
-                            }
-
-                            if (r.detectedText.isNotBlank() && r.detectedText != "لا يوجد نص") {
-                                ResultCard(
-                                    title = "النص المكتشف",
-                                    icon = Icons.Default.TextSnippet,
-                                    color = Color(0xFFFF9800),
-                                    content = r.detectedText
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                            }
-
-                            if (r.analysis.isNotBlank()) {
-                                ResultCard(
-                                    title = "معلومات إضافية",
-                                    icon = Icons.Default.Insights,
-                                    color = Color(0xFF9C27B0),
-                                    content = r.analysis
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                            }
-
-                            // ═══ المواقع + بحث ═══
-
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = Color(0xFF16213E)
-                                )
-                            ) {
-                                Column(modifier = Modifier.padding(16.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = Icons.Default.Language,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(20.dp),
-                                            tint = Color(0xFF00BCD4)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = "مواقع وبحث",
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "فتح مباشر — أنت تقرر ما تتصفح",
-                                        fontSize = 11.sp,
-                                        color = Color(0xFF666666)
-                                    )
-                                    Spacer(modifier = Modifier.height(12.dp))
-
-                                    r.websites.forEach { (name, url) ->
-                                        WebsiteRow(name = name, url = url)
-                                    }
-
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    HorizontalDivider(color = Color(0xFF333344))
-                                    Spacer(modifier = Modifier.height(12.dp))
-
-                                    Text(
-                                        text = "بحث مفتوح",
+                                        method?.nameAr ?: methodId,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF888888),
-                                        fontSize = 13.sp
+                                        fontSize = 15.sp,
+                                        color = color
                                     )
-                                    Spacer(modifier = Modifier.height(8.dp))
-
-                                    if (r.description.isNotBlank()) {
-                                        SearchRow(
-                                            label = "بحث: ${r.description.take(50)}...",
-                                            query = r.description
-                                        )
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                    }
-                                    if (r.keywords.isNotEmpty()) {
-                                        SearchRow(
-                                            label = "بحث: ${r.keywords.take(3).joinToString(" ")}",
-                                            query = r.keywords.joinToString(" ")
-                                        )
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                    }
-                                    if (r.detectedText.isNotBlank() && r.detectedText != "لا يوجد نص") {
-                                        SearchRow(
-                                            label = "بحث: ${r.detectedText.take(50)}...",
-                                            query = r.detectedText
-                                        )
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                    }
-                                    if (r.classification.isNotBlank()) {
-                                        SearchRow(
-                                            label = "بحث: ${r.classification}",
-                                            query = r.classification
-                                        )
-                                    }
                                 }
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    content,
+                                    color = Color(0xFFE0E0E0),
+                                    fontSize = 14.sp,
+                                    lineHeight = 22.sp
+                                )
+                            }
+                        }
+                    }
+
+                    // بحث Google مفتوح
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF16213E))
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Language,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp),
+                                    tint = Color(0xFF00BCD4)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("بحث مفتوح", fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // بحث بالكلمات المفتاحية من النتائج
+                            val firstResult = analysisResults.values.firstOrNull() ?: ""
+                            val searchTerms = extractSearchTerms(firstResult)
+
+                            searchTerms.forEach { term ->
+                                SearchRow(label = "بحث: $term", query = term)
+                                Spacer(modifier = Modifier.height(4.dp))
                             }
                         }
                     }
@@ -616,10 +661,7 @@ fun ImageAnalysisScreen(
             onDismissRequest = { showSettingsDialog = false },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = null
-                    )
+                    Icon(imageVector = Icons.Default.Settings, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("إعدادات AI")
                 }
@@ -627,37 +669,25 @@ fun ImageAnalysisScreen(
             text = {
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     Text(
-                        text = "أضف API Key من مزود واحد أو أكثر.\nالمزود الأول يُستخدم أولاً.",
+                        "أضف API Key من مزود واحد أو أكثر.\nالمزود الأول يُستخدم أولاً.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     ai.providers.forEach { p ->
                         Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                             shape = RoundedCornerShape(8.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant
-                            )
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                         ) {
                             Column(modifier = Modifier.padding(12.dp)) {
-                                Text(
-                                    text = p.nameAr,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp
-                                )
-                                Text(
-                                    text = p.freeNote,
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                Text(p.nameAr, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text(p.freeNote, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Spacer(modifier = Modifier.height(6.dp))
                                 OutlinedTextField(
                                     value = tempKeys[p.id]?.value ?: "",
                                     onValueChange = { tempKeys[p.id]?.value = it },
-                                    label = { Text(text = "${p.name} API Key") },
+                                    label = { Text("${p.name} API Key") },
                                     modifier = Modifier.fillMaxWidth(),
                                     singleLine = true,
                                     shape = RoundedCornerShape(8.dp),
@@ -673,60 +703,124 @@ fun ImageAnalysisScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    ai.providers.forEach { p ->
-                        ai.setKey(p.id, tempKeys[p.id]?.value ?: "")
-                    }
+                    ai.providers.forEach { p -> ai.setKey(p.id, tempKeys[p.id]?.value ?: "") }
                     showSettingsDialog = false
                     Toast.makeText(ctx, "تم الحفظ!", Toast.LENGTH_SHORT).show()
-                }) {
-                    Text("حفظ الكل")
-                }
+                }) { Text("حفظ الكل") }
             },
             dismissButton = {
-                TextButton(onClick = { showSettingsDialog = false }) {
-                    Text("إلغاء")
-                }
+                TextButton(onClick = { showSettingsDialog = false }) { Text("إلغاء") }
             }
         )
     }
 }
 
+// ═══════════════ مساعدات الأيقونات والألوان ═══════════════
+
+fun getMethodIcon(methodId: String): ImageVector {
+    return when (methodId) {
+        "general" -> Icons.Default.AutoAwesome
+        "technical" -> Icons.Default.Memory
+        "artistic" -> Icons.Default.Palette
+        "photography" -> Icons.Default.CameraAlt
+        "philosophical" -> Icons.Default.Lightbulb
+        "historical" -> Icons.Default.AccountBalance
+        "psychological" -> Icons.Default.Favorite
+        "media" -> Icons.Default.Campaign
+        "uiux" -> Icons.Default.PhoneAndroid
+        "product" -> Icons.Default.ShoppingCart
+        "forensic" -> Icons.Default.FindInPage
+        "ocr" -> Icons.Default.TextSnippet
+        "websearch" -> Icons.Default.Language
+        else -> Icons.Default.AutoAwesome
+    }
+}
+
+fun getMethodColor(methodId: String): Color {
+    return when (methodId) {
+        "general" -> Color(0xFF4CAF50)
+        "technical" -> Color(0xFFFF9800)
+        "artistic" -> Color(0xFFE91E63)
+        "photography" -> Color(0xFF2196F3)
+        "philosophical" -> Color(0xFF9C27B0)
+        "historical" -> Color(0xFF795548)
+        "psychological" -> Color(0xFFF44336)
+        "media" -> Color(0xFF00BCD4)
+        "uiux" -> Color(0xFF3F51B5)
+        "product" -> Color(0xFFFF5722)
+        "forensic" -> Color(0xFF607D8B)
+        "ocr" -> Color(0xFF8BC34A)
+        "websearch" -> Color(0xFF009688)
+        else -> Color(0xFF4CAF50)
+    }
+}
+
+fun extractSearchTerms(text: String): List<String> {
+    val terms = mutableListOf<String>()
+    val lines = text.split("\n").filter { it.isNotBlank() }
+    // استخراج أول 4 سطور مفيدة كمصطلحات بحث
+    for (line in lines.take(8)) {
+        val clean = line.trim()
+            .removePrefix("-").removePrefix("•").removePrefix("*")
+            .removePrefix("1.").removePrefix("2.").removePrefix("3.")
+            .removePrefix("4.").removePrefix("5.")
+            .trim()
+        if (clean.length in 5..80 && !clean.startsWith("═") && !clean.startsWith("[")) {
+            terms.add(clean)
+        }
+        if (terms.size >= 4) break
+    }
+    return terms
+}
+
+suspend fun saveToHistory(
+    ctx: android.content.Context,
+    results: Map<String, String>,
+    methods: List<AnalysisMethod>
+) {
+    try {
+        val combinedText = results.entries.joinToString("\n\n") { (id, content) ->
+            val method = methods.find { it.id == id }
+            "═══ ${method?.nameAr ?: id} ═══\n$content"
+        }
+        val keywords = methods.joinToString("، ") { it.nameAr }
+        HistoryDatabase.getDatabase(ctx).imageAnalysisDao().insert(
+            ImageAnalysisItem(
+                description = "تحليل: $keywords",
+                keywords = keywords,
+                detectedText = "",
+                analysis = combinedText.take(5000),
+                websites = "",
+                rawResponse = combinedText
+            )
+        )
+    } catch (_: Exception) {}
+}
+
 // ═══════════════ مكونات مساعدة ═══════════════
 
 @Composable
-fun ResultCard(
-    title: String,
-    icon: ImageVector,
-    color: Color,
-    content: String
-) {
-    Card(
+fun SearchRow(label: String, query: String) {
+    val ctx = LocalContext.current
+    Surface(
+        onClick = {
+            try {
+                ctx.startActivity(
+                    Intent(
+                        Intent.ACTION_VIEW,
+                        Uri.parse("https://www.google.com/search?q=${URLEncoder.encode(query, "UTF-8")}")
+                    )
+                )
+            } catch (_: Exception) {}
+        },
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A2E))
+        shape = RoundedCornerShape(8.dp),
+        color = Color(0xFF1B2838)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                    tint = color
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = title,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = content,
-                color = Color(0xFFE0E0E0),
-                fontSize = 14.sp,
-                lineHeight = 22.sp
-            )
+        Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(imageVector = Icons.Default.Search, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFF888888))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(label, color = Color(0xFF888888), fontSize = 13.sp, maxLines = 1)
         }
     }
 }
@@ -740,94 +834,21 @@ fun WebsiteRow(name: String, url: String) {
                 ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
             } catch (_: Exception) {
                 try {
-                    ctx.startActivity(
-                        Intent(
-                            Intent.ACTION_VIEW,
-                            Uri.parse(
-                                "https://www.google.com/search?q=${
-                                    URLEncoder.encode(name, "UTF-8")
-                                }"
-                            )
-                        )
-                    )
+                    ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/search?q=${URLEncoder.encode(name, "UTF-8")}")))
                 } catch (_: Exception) {}
             }
         },
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 3.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
         shape = RoundedCornerShape(8.dp),
         color = Color(0xFF0D1B2A)
     ) {
-        Row(
-            modifier = Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Default.OpenInNew,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = Color(0xFF00BCD4)
-            )
+        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(imageVector = Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF00BCD4))
             Spacer(modifier = Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = name,
-                    color = Color(0xFF00BCD4),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    textDecoration = TextDecoration.Underline
-                )
-                Text(
-                    text = url,
-                    color = Color(0xFF555555),
-                    fontSize = 11.sp,
-                    maxLines = 1
-                )
+                Text(name, color = Color(0xFF00BCD4), fontSize = 14.sp, fontWeight = FontWeight.Medium, textDecoration = TextDecoration.Underline)
+                Text(url, color = Color(0xFF555555), fontSize = 11.sp, maxLines = 1)
             }
-        }
-    }
-}
-
-@Composable
-fun SearchRow(label: String, query: String) {
-    val ctx = LocalContext.current
-    Surface(
-        onClick = {
-            try {
-                ctx.startActivity(
-                    Intent(
-                        Intent.ACTION_VIEW,
-                        Uri.parse(
-                            "https://www.google.com/search?q=${
-                                URLEncoder.encode(query, "UTF-8")
-                            }"
-                        )
-                    )
-                )
-            } catch (_: Exception) {}
-        },
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        color = Color(0xFF1B2838)
-    ) {
-        Row(
-            modifier = Modifier.padding(10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = null,
-                modifier = Modifier.size(14.dp),
-                tint = Color(0xFF888888)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = label,
-                color = Color(0xFF888888),
-                fontSize = 13.sp,
-                maxLines = 1
-            )
         }
     }
 }
