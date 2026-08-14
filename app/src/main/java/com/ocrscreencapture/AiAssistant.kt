@@ -33,7 +33,27 @@ class AiAssistant(private val context: Context) {
         val visionModel: String,
         val freeNote: String
     )
-
+    
+    val providers = listOf(
+        Provider(
+            id = "hcnsec",
+            name = "HCNSec",
+            nameAr = "HCNSec (مجاني)",
+            url = "https://api.hcnsec.cn/v1/chat/completions",
+            model = "auto",
+            visionModel = "auto",
+            freeNote = "مجاني — hcnsec.cn"
+        ),
+        Provider(
+            id = "groq",
+            name = "Groq",
+            nameAr = "Groq (سريع جداً)",
+            url = "https://api.groq.com/openai/v1/chat/completions",
+            model = "llama-3.3-70b-versatile",
+            visionModel = "llama-3.2-90b-vision-preview",
+            freeNote = "مجاني — console.groq.com"
+        ),
+        // ... بقية المزودين كما هم
     val providers = listOf(
         Provider(
             id = "groq",
